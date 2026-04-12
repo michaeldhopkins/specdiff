@@ -10,13 +10,7 @@ pub fn parse_file(source: &str, path: &str, framework: &FrameworkDef) -> Option<
     let tree = parser.parse(source, None)?;
     let root = tree.root_node();
 
-    let children = if !framework.group.is_empty() || !framework.spec.is_empty() {
-        parse_dsl_children(root, source, framework)
-    } else if !framework.marker.is_empty() {
-        parse_marker_children(root, source, framework)
-    } else {
-        vec![]
-    };
+    let children = parse_children(root, source, framework);
 
     if children.is_empty() {
         return None;
@@ -37,19 +31,29 @@ fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::Langu
     }
 }
 
-fn parse_dsl_children(node: Node, source: &str, framework: &FrameworkDef) -> Vec<SpecNode> {
+fn parse_children(node: Node, source: &str, framework: &FrameworkDef) -> Vec<SpecNode> {
     let mut results = Vec::new();
     let mut cursor = node.walk();
 
     for child in node.children(&mut cursor) {
-        if let Some(spec_node) = try_match_dsl_node(child, source, framework) {
+        if let Some(spec_node) = try_match_node(child, source, framework) {
             results.push(spec_node);
         } else {
-            results.extend(parse_dsl_children(child, source, framework));
+            results.extend(parse_children(child, source, framework));
         }
     }
 
     results
+}
+
+fn try_match_node(node: Node, source: &str, framework: &FrameworkDef) -> Option<SpecNode> {
+    if let Some(result) = try_match_dsl_node(node, source, framework) {
+        return Some(result);
+    }
+    if let Some(result) = try_match_marker_node(node, source, framework) {
+        return Some(result);
+    }
+    None
 }
 
 fn try_match_dsl_node(
@@ -68,7 +72,7 @@ fn try_match_dsl_node(
             if let Some(name) = extract_name(node, source, &group_def.name_source, group_def.name_source_type.as_deref()) {
                 let block_node = find_block(node);
                 let children = if let Some(block) = block_node {
-                    parse_dsl_children(block, source, framework)
+                    parse_children(block, source, framework)
                 } else {
                     vec![]
                 };
@@ -196,21 +200,6 @@ fn node_text(node: Node, source: &str) -> String {
     source[node.byte_range()].to_string()
 }
 
-fn parse_marker_children(node: Node, source: &str, framework: &FrameworkDef) -> Vec<SpecNode> {
-    let mut results = Vec::new();
-    let mut cursor = node.walk();
-
-    for child in node.children(&mut cursor) {
-        if let Some(spec_node) = try_match_marker_node(child, source, framework) {
-            results.push(spec_node);
-        } else {
-            results.extend(parse_marker_children(child, source, framework));
-        }
-    }
-
-    results
-}
-
 fn try_match_marker_node(
     node: Node,
     source: &str,
@@ -271,7 +260,7 @@ fn try_match_attribute_marker(
         }),
         "group" => {
             let body = node.child_by_field_name("body")?;
-            let children = parse_marker_children(body, source, framework);
+            let children = parse_children(body, source, framework);
             Some(SpecNode {
                 name: normalized,
                 kind: SpecKind::Group,
@@ -355,19 +344,7 @@ fn try_match_name_pattern_marker(
                     node.children(&mut c).find(|n| n.kind() == "body_statement" || n.kind() == "block")
                 });
             let children = if let Some(body) = body_node {
-                let mut results = Vec::new();
-                let mut c2 = body.walk();
-                for child in body.children(&mut c2) {
-                    if let Some(n) = try_match_marker_node(child, source, framework) {
-                        results.push(n);
-                    } else {
-                        results.extend(parse_marker_children(child, source, framework));
-                    }
-                    if let Some(n) = try_match_dsl_node(child, source, framework) {
-                        results.push(n);
-                    }
-                }
-                results
+                parse_children(body, source, framework)
             } else {
                 vec![]
             };
@@ -586,5 +563,52 @@ fn test_standalone() {
         assert_eq!(normalize_name("test_addition", fw), "addition");
         assert_eq!(normalize_name("test_my_func", fw), "my func");
         assert_eq!(normalize_name("helper_func", fw), "helper func");
+    }
+
+    fn minitest_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest framework")
+    }
+
+    #[test]
+    fn parse_minitest_class_and_methods() {
+        let source = r#"
+require "test_helper"
+
+class TestUser < Minitest::Test
+  def test_valid_user
+    assert true
+  end
+
+  def test_invalid_without_name
+    refute false
+  end
+end
+"#;
+        let tree = parse_file(source, "test/models/user_test.rb", minitest_framework());
+        assert!(tree.is_some());
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "minitest");
+
+        assert_eq!(tree.root.len(), 1);
+        let user_class = &tree.root[0];
+        assert_eq!(user_class.name, "User");
+        assert_eq!(user_class.kind, SpecKind::Group);
+        assert_eq!(user_class.children.len(), 2);
+        assert_eq!(user_class.children[0].name, "valid user");
+        assert_eq!(user_class.children[1].name, "invalid without name");
+    }
+
+    #[test]
+    fn parse_minitest_fixture_base() {
+        let source = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures/minitest/base/test/models/user_test.rb")
+        );
+        if let Ok(source) = source {
+            let tree = parse_file(&source, "test/models/user_test.rb", minitest_framework());
+            let tree = tree.expect("parsed fixture");
+            assert_eq!(tree.root.len(), 1);
+            let user_class = &tree.root[0];
+            assert_eq!(user_class.children.len(), 3);
+        }
     }
 }

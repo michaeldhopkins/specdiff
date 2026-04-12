@@ -12,6 +12,22 @@ All of my projects are available in ~/projects. In particular:
 
 Read these projects' code to match their quality bar and patterns.
 
+## Pre-Commit Checklist
+
+Before every commit, verify:
+1. `cargo clippy --all-targets -- -D warnings` passes
+2. `cargo test` passes
+3. Version bumped in Cargo.toml (patch for fixes, minor for features)
+4. All files end with a newline
+
+## Versioning (Semver)
+
+**PATCH bump** (0.x.Y -> 0.x.Y+1) for: bug fixes, refactoring, test additions, dependency updates, documentation.
+
+**MINOR bump** (0.X.y -> 0.X+1.0) for: new user-facing features (frameworks, output formats, CLI flags), new parsing capabilities.
+
+**MAJOR bump** (X.y.z -> X+1.0.0) for: breaking CLI changes, removing frameworks, output format changes.
+
 ## Testing
 
 cargo test
@@ -36,19 +52,20 @@ Must pass with no warnings before committing.
   that can't be expressed in TOML. Most frameworks don't need them.
 - Core types: SpecNode/SpecTree in src/parse/mod.rs,
   DiffNode/DiffTree in src/diff/types.rs
+- Parsing engine in src/parse/engine.rs walks tree-sitter ASTs
+  using patterns from TOML definitions
 - VCS backends in src/vcs/ implement the Vcs trait
 - Rename detection in src/diff/rename.rs
 - Unit tests use StubVcs (in-memory file maps) and pre-built
   SharedExampleRegistry instances
 - Do not add comments to code
 - All files must end with a newline
-- Bump version in Cargo.toml with each commit using semver
 
 ## Adding a new framework
 
 1. Create frameworks/<name>.toml following SAMPLE.toml patterns
 2. Add tree-sitter grammar crate to Cargo.toml if new language
-3. Register the TOML file via include_str! in src/parse/registry.rs
+3. The build.rs automatically picks up new TOML files in frameworks/
 4. If custom handler needed, add to src/parse/handlers/
 5. Add unit tests with representative source snippets
 6. Create fixture in ~/projects/specdiff-tests/fixtures/<name>/
