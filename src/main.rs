@@ -8,6 +8,7 @@ mod vcs;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use diff::types::FileDiff;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
@@ -53,7 +54,7 @@ fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
         return Ok(());
     }
 
-    let mut all_diff_nodes = Vec::new();
+    let mut file_diffs = Vec::new();
 
     for path in &test_files {
         let frameworks = parse::registry::frameworks_for_file(path);
@@ -81,21 +82,14 @@ fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
         let base_nodes = base_tree.map(|t| t.root).unwrap_or_default();
         let head_nodes = head_tree.map(|t| t.root).unwrap_or_default();
 
-        let file_diff = diff::diff_spec_nodes(&base_nodes, &head_nodes);
-        if !file_diff.is_empty() {
-            all_diff_nodes.extend(file_diff);
+        let nodes = diff::diff_spec_nodes(&base_nodes, &head_nodes);
+        if !nodes.is_empty() {
+            let display_path = parse::registry::normalize_file_path(&rel_path, framework);
+            file_diffs.push(FileDiff { path: display_path, nodes });
         }
     }
 
-    let output_str = match cli.format {
-        cli::OutputFormat::Tree => output::format_tree(&all_diff_nodes, cli.changed_only, !cli.no_color),
-        cli::OutputFormat::Json => output::format_json(&all_diff_nodes)
-            .context("failed to serialize JSON")?,
-        cli::OutputFormat::Compact => output::format_compact(&all_diff_nodes),
-    };
-
-    print!("{output_str}");
-    Ok(())
+    render_output(&file_diffs, cli)
 }
 
 fn run_directory_diff(base_dir: &str, head_dir: &str, cli: &cli::Cli) -> Result<()> {
@@ -111,7 +105,7 @@ fn run_directory_diff(base_dir: &str, head_dir: &str, cli: &cli::Cli) -> Result<
         .cloned()
         .collect();
 
-    let mut all_diff_nodes = Vec::new();
+    let mut file_diffs = Vec::new();
 
     for rel_path in &all_rel_paths {
         let frameworks = parse::registry::frameworks_for_file(Path::new(rel_path));
@@ -138,22 +132,25 @@ fn run_directory_diff(base_dir: &str, head_dir: &str, cli: &cli::Cli) -> Result<
         let base_nodes = base_tree.map(|t| t.root).unwrap_or_default();
         let head_nodes = head_tree.map(|t| t.root).unwrap_or_default();
 
-        let file_diff = diff::diff_spec_nodes(&base_nodes, &head_nodes);
-
-        if !file_diff.is_empty() {
-            all_diff_nodes.extend(file_diff);
+        let nodes = diff::diff_spec_nodes(&base_nodes, &head_nodes);
+        if !nodes.is_empty() {
+            let display_path = parse::registry::normalize_file_path(rel_path, framework);
+            file_diffs.push(FileDiff { path: display_path, nodes });
         }
     }
 
+    render_output(&file_diffs, cli)
+}
+
+fn render_output(file_diffs: &[FileDiff], cli: &cli::Cli) -> Result<()> {
     let output_str = match cli.format {
-        cli::OutputFormat::Tree => output::format_tree(&all_diff_nodes, cli.changed_only, !cli.no_color),
-        cli::OutputFormat::Json => output::format_json(&all_diff_nodes)
+        cli::OutputFormat::Tree => output::format_tree(file_diffs, cli.changed_only, !cli.no_color),
+        cli::OutputFormat::Json => output::format_json(file_diffs)
             .context("failed to serialize JSON")?,
-        cli::OutputFormat::Compact => output::format_compact(&all_diff_nodes),
+        cli::OutputFormat::Compact => output::format_compact(file_diffs),
     };
 
     print!("{output_str}");
-
     Ok(())
 }
 

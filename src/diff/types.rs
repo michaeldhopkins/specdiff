@@ -1,6 +1,12 @@
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FileDiff {
+    pub path: String,
+    pub nodes: Vec<DiffNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum DiffKind {
     Added,
     Removed,

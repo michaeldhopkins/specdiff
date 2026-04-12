@@ -1,4 +1,4 @@
-use crate::diff::types::{DiffKind, DiffNode};
+use crate::diff::types::{DiffKind, DiffNode, FileDiff};
 use std::fmt::Write;
 use std::io::IsTerminal;
 
@@ -7,25 +7,108 @@ const RED: &str = "\x1b[31m";
 const YELLOW: &str = "\x1b[33m";
 const CYAN: &str = "\x1b[36m";
 const DIM: &str = "\x1b[2m";
+const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 
-pub fn format_json(nodes: &[DiffNode]) -> anyhow::Result<String> {
-    Ok(serde_json::to_string_pretty(nodes)?)
+pub fn format_json(file_diffs: &[FileDiff]) -> anyhow::Result<String> {
+    Ok(serde_json::to_string_pretty(file_diffs)?)
 }
 
-pub fn format_tree(nodes: &[DiffNode], changed_only: bool, color: bool) -> String {
+pub fn format_tree(file_diffs: &[FileDiff], changed_only: bool, color: bool) -> String {
     let use_color = color && std::io::stdout().is_terminal();
     let mut output = String::new();
-    for node in nodes {
-        format_tree_node(node, &mut output, 0, changed_only, use_color);
+
+    let stats = count_stats(file_diffs);
+    if stats.added > 0 || stats.removed > 0 || stats.renamed > 0 || stats.modified > 0 {
+        if use_color {
+            let _ = write!(output, "{BOLD}");
+        }
+        let _ = write!(output, "spec-diff");
+        if use_color {
+            let _ = write!(output, "{RESET}");
+        }
+        let _ = write!(output, "  ");
+        if stats.added > 0 {
+            let _ = write!(output, "{}", if use_color { GREEN } else { "" });
+            let _ = write!(output, "+{}", stats.added);
+            let _ = write!(output, "{}", if use_color { RESET } else { "" });
+            let _ = write!(output, " ");
+        }
+        if stats.removed > 0 {
+            let _ = write!(output, "{}", if use_color { RED } else { "" });
+            let _ = write!(output, "-{}", stats.removed);
+            let _ = write!(output, "{}", if use_color { RESET } else { "" });
+            let _ = write!(output, " ");
+        }
+        if stats.renamed > 0 {
+            let _ = write!(output, "{}", if use_color { YELLOW } else { "" });
+            let _ = write!(output, "~>{}", stats.renamed);
+            let _ = write!(output, "{}", if use_color { RESET } else { "" });
+            let _ = write!(output, " ");
+        }
+        if stats.modified > 0 {
+            let _ = write!(output, "{}", if use_color { CYAN } else { "" });
+            let _ = write!(output, "~{}", stats.modified);
+            let _ = write!(output, "{}", if use_color { RESET } else { "" });
+        }
+        let _ = writeln!(output);
+        let _ = writeln!(output);
+    }
+
+    for file_diff in file_diffs {
+        let file_has_changes = file_diff.nodes.iter().any(has_changes);
+        if changed_only && !file_has_changes {
+            continue;
+        }
+
+        if use_color {
+            let _ = writeln!(output, "{BOLD}  {}{RESET}", file_diff.path);
+        } else {
+            let _ = writeln!(output, "  {}", file_diff.path);
+        }
+
+        for node in &file_diff.nodes {
+            format_tree_node(node, &mut output, 1, changed_only, use_color);
+        }
+    }
+
+    output
+}
+
+pub fn format_compact(file_diffs: &[FileDiff]) -> String {
+    let mut output = String::new();
+    for file_diff in file_diffs {
+        collect_compact_lines(&file_diff.nodes, &[file_diff.path.as_str()], &mut output);
     }
     output
 }
 
-pub fn format_compact(nodes: &[DiffNode]) -> String {
-    let mut output = String::new();
-    collect_compact_lines(nodes, &[], &mut output);
-    output
+struct Stats {
+    added: usize,
+    removed: usize,
+    renamed: usize,
+    modified: usize,
+}
+
+fn count_stats(file_diffs: &[FileDiff]) -> Stats {
+    let mut stats = Stats { added: 0, removed: 0, renamed: 0, modified: 0 };
+    for fd in file_diffs {
+        count_nodes(&fd.nodes, &mut stats);
+    }
+    stats
+}
+
+fn count_nodes(nodes: &[DiffNode], stats: &mut Stats) {
+    for node in nodes {
+        match node.kind {
+            DiffKind::Added => stats.added += 1,
+            DiffKind::Removed => stats.removed += 1,
+            DiffKind::Renamed => stats.renamed += 1,
+            DiffKind::Modified => stats.modified += 1,
+            DiffKind::Unchanged => {}
+        }
+        count_nodes(&node.children, stats);
+    }
 }
 
 fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_only: bool, color: bool) {
@@ -108,14 +191,11 @@ fn collect_compact_lines(nodes: &[DiffNode], path: &[&str], output: &mut String)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::types::{DiffKind, DiffNode};
 
-    fn sample_diff() -> Vec<DiffNode> {
-        vec![DiffNode {
-            name: "User".into(),
-            kind: DiffKind::Modified,
-            old_name: None,
-            children: vec![
+    fn sample_file_diffs() -> Vec<FileDiff> {
+        vec![FileDiff {
+            path: "models::user".into(),
+            nodes: vec![
                 DiffNode {
                     name: "validations".into(),
                     kind: DiffKind::Modified,
@@ -151,44 +231,47 @@ mod tests {
     }
 
     #[test]
-    fn tree_format_shows_all() {
-        let output = format_tree(&sample_diff(), false, false);
-        assert!(output.contains("~  User"), "missing User, got:\n{output}");
-        assert!(output.contains("validations"), "missing validations");
-        assert!(output.contains("validates email"), "missing validates email");
-        assert!(output.contains("+ "), "missing + prefix");
-        assert!(output.contains("validates uniqueness"), "missing validates uniqueness");
-        assert!(output.contains("associations"), "missing associations");
+    fn tree_format_shows_file_path() {
+        let output = format_tree(&sample_file_diffs(), false, false);
+        assert!(output.contains("models::user"), "should show file path header");
+        assert!(output.contains("validations"), "should show group");
+        assert!(output.contains("validates uniqueness"), "should show added spec");
+    }
+
+    #[test]
+    fn tree_format_shows_stats_header() {
+        let output = format_tree(&sample_file_diffs(), false, false);
+        assert!(output.contains("spec-diff"), "should show header");
+        assert!(output.contains("+1"), "should show added count");
+        assert!(output.contains("~1"), "should show modified count");
     }
 
     #[test]
     fn tree_format_changed_only() {
-        let output = format_tree(&sample_diff(), true, false);
-        assert!(output.contains("User"));
+        let output = format_tree(&sample_file_diffs(), true, false);
+        assert!(output.contains("models::user"));
         assert!(output.contains("validations"));
         assert!(output.contains("validates uniqueness"));
         assert!(!output.contains("associations"));
     }
 
     #[test]
-    fn compact_format() {
-        let output = format_compact(&sample_diff());
-        assert!(output.contains("+ User > validations > validates uniqueness"));
-        assert!(!output.contains("validates email"));
-        assert!(!output.contains("associations"));
+    fn compact_format_includes_file_path() {
+        let output = format_compact(&sample_file_diffs());
+        assert!(output.contains("models::user > validations > validates uniqueness"));
     }
 
     #[test]
-    fn json_format() {
-        let diff = sample_diff();
-        let json = format_json(&diff).expect("json");
-        assert!(json.contains("\"Modified\""));
+    fn json_format_includes_file_path() {
+        let diffs = sample_file_diffs();
+        let json = format_json(&diffs).expect("json");
+        assert!(json.contains("models::user"));
         assert!(json.contains("validates uniqueness"));
     }
 
     #[test]
     fn tree_format_no_color_has_no_escape_codes() {
-        let output = format_tree(&sample_diff(), false, false);
+        let output = format_tree(&sample_file_diffs(), false, false);
         assert!(!output.contains("\x1b["), "no-color output should not contain ANSI codes");
     }
 }

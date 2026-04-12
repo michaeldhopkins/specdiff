@@ -99,8 +99,8 @@ fn cli_compact_format_rust_fixtures() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("- tests > subtraction"))
-        .stdout(predicate::str::contains("+ tests > multiplication"));
+        .stdout(predicate::str::contains("- lib > tests > subtraction"))
+        .stdout(predicate::str::contains("+ lib > tests > multiplication"));
 }
 
 #[test]

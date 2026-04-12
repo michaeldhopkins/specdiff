@@ -287,6 +287,41 @@ pub fn frameworks_for_file(path: &Path) -> Vec<&'static FrameworkDef> {
         .collect()
 }
 
+pub fn normalize_file_path(path: &str, framework: &FrameworkDef) -> String {
+    let pg = match &framework.path_grouping {
+        Some(pg) => pg,
+        None => return path.to_string(),
+    };
+
+    let mut result = path.to_string();
+
+    for prefix in &pg.strip_prefixes {
+        if let Some(stripped) = result.strip_prefix(prefix.as_str()) {
+            result = stripped.to_string();
+            break;
+        }
+    }
+
+    if pg.strip_extension {
+        if let Some(dot) = result.rfind('.') {
+            result.truncate(dot);
+        }
+    }
+
+    for suffix in &pg.strip_suffixes {
+        if let Some(stripped) = result.strip_suffix(suffix.as_str()) {
+            result = stripped.to_string();
+            break;
+        }
+    }
+
+    if !pg.separator.is_empty() {
+        result = result.replace('/', &pg.separator);
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +390,42 @@ mod tests {
     fn excluded_files_do_not_match() {
         let matches = frameworks_for_file(Path::new("spec/spec_helper.rb"));
         assert!(!matches.iter().any(|f| f.name == "rspec"), "spec_helper.rb should be excluded");
+    }
+
+    #[test]
+    fn normalize_rspec_path() {
+        let rspec = all_frameworks().iter().find(|f| f.name == "rspec").expect("rspec");
+        assert_eq!(normalize_file_path("spec/models/user_spec.rb", rspec), "models::user");
+    }
+
+    #[test]
+    fn normalize_rust_path() {
+        let rust = all_frameworks().iter().find(|f| f.name == "rust_builtin").expect("rust");
+        assert_eq!(normalize_file_path("src/lib.rs", rust), "lib");
+        assert_eq!(normalize_file_path("tests/integration.rs", rust), "integration");
+    }
+
+    #[test]
+    fn normalize_pytest_path() {
+        let pytest = all_frameworks().iter().find(|f| f.name == "pytest").expect("pytest");
+        assert_eq!(normalize_file_path("tests/test_user.py", pytest), "test_user");
+    }
+
+    #[test]
+    fn normalize_go_path() {
+        let go = all_frameworks().iter().find(|f| f.name == "go_testing").expect("go");
+        assert_eq!(normalize_file_path("user_test.go", go), "user");
+    }
+
+    #[test]
+    fn normalize_jest_path() {
+        let jest = all_frameworks().iter().find(|f| f.name == "jest").expect("jest");
+        assert_eq!(normalize_file_path("__tests__/user.test.js", jest), "user");
+    }
+
+    #[test]
+    fn normalize_minitest_path() {
+        let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
+        assert_eq!(normalize_file_path("test/models/user_test.rb", minitest), "models::user");
     }
 }
