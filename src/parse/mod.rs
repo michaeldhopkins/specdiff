@@ -1,3 +1,4 @@
+pub mod engine;
 pub mod registry;
 
 use serde::Serialize;
