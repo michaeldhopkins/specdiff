@@ -27,6 +27,9 @@ fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::Langu
     match framework.language.as_str() {
         "ruby" => Some(tree_sitter_ruby::LANGUAGE.into()),
         "rust" => Some(tree_sitter_rust::LANGUAGE.into()),
+        "python" => Some(tree_sitter_python::LANGUAGE.into()),
+        "javascript" => Some(tree_sitter_javascript::LANGUAGE.into()),
+        "go" => Some(tree_sitter_go::LANGUAGE.into()),
         _ => None,
     }
 }
@@ -165,7 +168,20 @@ fn find_block(node: Node) -> Option<Node> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "block" | "do_block" => return Some(child),
+            "block" | "do_block" | "statement_block" => return Some(child),
+            "arguments" => {
+                let mut c2 = child.walk();
+                for arg in child.children(&mut c2) {
+                    if arg.kind() == "arrow_function" || arg.kind() == "function" {
+                        let mut c3 = arg.walk();
+                        for inner in arg.children(&mut c3) {
+                            if inner.kind() == "statement_block" {
+                                return Some(inner);
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -174,11 +190,14 @@ fn find_block(node: Node) -> Option<Node> {
 
 fn extract_string_content(node: Node, source: &str) -> Option<String> {
     match node.kind() {
-        "string" | "string_literal" => {
+        "string" | "string_literal" | "interpreted_string_literal" => {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                if child.kind() == "string_content" {
-                    return node_text(child, source);
+                match child.kind() {
+                    "string_content" | "string_fragment" | "interpreted_string_literal_content" => {
+                        return node_text(child, source);
+                    }
+                    _ => {}
                 }
             }
             let text = node_text(node, source)?;
@@ -660,5 +679,95 @@ end
     fn parse_source_with_no_tests_returns_none() {
         let source = "class User\n  def name\n    @name\n  end\nend\n";
         assert!(parse_file(source, "spec/models/user_spec.rb", rspec_framework()).is_none());
+    }
+
+    fn pytest_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "pytest").expect("pytest framework")
+    }
+
+    fn jest_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "jest").expect("jest framework")
+    }
+
+    fn go_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "go_testing").expect("go_testing framework")
+    }
+
+    #[test]
+    fn parse_pytest_class_and_functions() {
+        let source = "class TestUser:\n    def test_create(self):\n        assert True\n\n    def test_delete(self):\n        assert True\n\ndef test_standalone():\n    assert True\n";
+        let tree = parse_file(source, "tests/test_user.py", pytest_framework());
+        assert!(tree.is_some(), "should parse pytest");
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "pytest");
+
+        assert!(tree.root.len() >= 2, "should find class + standalone fn, got {}", tree.root.len());
+
+        let class = tree.root.iter().find(|n| n.kind == SpecKind::Group);
+        assert!(class.is_some(), "should find TestUser group");
+        let class = class.expect("found");
+        assert_eq!(class.name, "User");
+        assert_eq!(class.children.len(), 2);
+        assert_eq!(class.children[0].name, "create");
+        assert_eq!(class.children[1].name, "delete");
+
+        let standalone = tree.root.iter().find(|n| n.name == "standalone");
+        assert!(standalone.is_some(), "should find test_standalone");
+    }
+
+    #[test]
+    fn parse_pytest_fixture() {
+        let Some(source) = read_fixture("pytest/base/tests/test_user.py") else { return };
+        let tree = parse_file(&source, "tests/test_user.py", pytest_framework());
+        let tree = tree.expect("parsed fixture");
+        assert!(tree.root.len() >= 2, "should have TestUser + TestUserValidation");
+    }
+
+    #[test]
+    fn parse_jest_describe_it() {
+        let source = "describe('User', () => {\n  it('creates a user', () => {\n    expect(true).toBe(true);\n  });\n\n  it('deletes a user', () => {\n    expect(true).toBe(true);\n  });\n});\n";
+        let tree = parse_file(source, "user.test.js", jest_framework());
+        assert!(tree.is_some(), "should parse jest");
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "jest");
+        assert_eq!(tree.root.len(), 1);
+
+        let describe = &tree.root[0];
+        assert_eq!(describe.name, "User");
+        assert_eq!(describe.kind, SpecKind::Group);
+        assert_eq!(describe.children.len(), 2);
+        assert_eq!(describe.children[0].name, "creates a user");
+        assert_eq!(describe.children[1].name, "deletes a user");
+    }
+
+    #[test]
+    fn parse_jest_fixture() {
+        let Some(source) = read_fixture("jest/base/__tests__/user.test.js") else { return };
+        let tree = parse_file(&source, "__tests__/user.test.js", jest_framework());
+        let tree = tree.expect("parsed fixture");
+        assert_eq!(tree.root.len(), 1);
+        let user = &tree.root[0];
+        assert_eq!(user.name, "User");
+        assert_eq!(user.children.len(), 2);
+    }
+
+    #[test]
+    fn parse_go_test_functions() {
+        let source = "package user\n\nimport \"testing\"\n\nfunc TestCreate(t *testing.T) {\n}\n\nfunc TestDelete(t *testing.T) {\n}\n";
+        let tree = parse_file(source, "user_test.go", go_framework());
+        assert!(tree.is_some(), "should parse go tests");
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "go_testing");
+        assert_eq!(tree.root.len(), 2);
+        assert_eq!(tree.root[0].name, "Create");
+        assert_eq!(tree.root[1].name, "Delete");
+    }
+
+    #[test]
+    fn parse_go_fixture() {
+        let Some(source) = read_fixture("go/base/user_test.go") else { return };
+        let tree = parse_file(&source, "user_test.go", go_framework());
+        let tree = tree.expect("parsed fixture");
+        assert_eq!(tree.root.len(), 2);
     }
 }
