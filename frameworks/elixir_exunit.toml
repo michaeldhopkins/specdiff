@@ -1,0 +1,31 @@
+[[framework]]
+name = "exunit"
+language = "elixir"
+tree_sitter_crate = "tree-sitter-elixir"
+description = "ExUnit — Elixir test framework"
+
+[framework.files]
+extensions = [".exs"]
+include_globs = ["test/**/*_test.exs"]
+require_ast_confirmation = false
+
+[[framework.group]]
+ast_type = "call"
+method_names = ["describe"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.spec]]
+ast_type = "call"
+method_names = ["test"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[framework.normalization]
+raw = true
+
+[framework.path_grouping]
+strip_prefixes = ["test/"]
+strip_suffixes = ["_test"]
+separator = "::"
+strip_extension = true

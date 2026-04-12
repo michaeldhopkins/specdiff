@@ -1,0 +1,63 @@
+[[framework]]
+name = "pytest"
+language = "python"
+tree_sitter_crate = "tree-sitter-python"
+description = "pytest — Python testing framework"
+
+[framework.files]
+extensions = [".py"]
+include_globs = [
+    "tests/**/test_*.py",
+    "tests/**/*_test.py",
+    "test_*.py",
+    "*_test.py",
+]
+require_ast_confirmation = false
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^Test"
+applies_to = "class"
+creates = "group"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^test_"
+applies_to = "function"
+creates = "spec"
+
+[[framework.parameterized]]
+detection = "decorator"
+decorator_name = "pytest.mark.parametrize"
+case_count_source = "second_argument"
+case_count_type = "list_length"
+label_source = "ids_kwarg"
+label_fallback = "first_element"
+
+[[framework.property_based]]
+detection = "decorator"
+decorator_name = "given"
+decorator_module = "hypothesis"
+
+[framework.normalization]
+strip_prefixes = ["test_"]
+underscore_to_space = true
+strip_camel_test_prefix = true
+
+[framework.path_grouping]
+strip_prefixes = ["tests/", "test/"]
+strip_suffixes = ["_test"]
+separator = "::"
+strip_extension = true
+
+[framework.shared]
+definition_globs = ["**/conftest.py"]
+scan_spec_files_for_definitions = false
+
+[[framework.shared.definition]]
+ast_type = "class_definition"
+method_names = []
+name_source = "identifier"
+body = "class_body"
+detection_strategy = "inheritance"
+handler = "pytest_inheritance"

@@ -1,0 +1,48 @@
+[package]
+name = "spec-diff"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Show test outline changes on a branch"
+repository = "https://github.com/michaeldhopkins/spec-diff"
+homepage = "https://github.com/michaeldhopkins/spec-diff"
+categories = ["command-line-utilities", "development-tools::testing"]
+keywords = ["test", "diff", "tree-sitter", "tui"]
+include = ["src/**", "frameworks/**", "build.rs", "LICENSE*", "README.md"]
+
+[[bin]]
+name = "spec-diff"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+git2 = "0.19"
+glob = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tree-sitter = "0.24"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24"
+
+[dev-dependencies]
+assert_cmd = "2"
+insta = { version = "1", features = ["json"] }
+predicates = "3"
+proptest = "1"
+tempfile = "3"
+
+[lints.clippy]
+struct-excessive-bools = "deny"
+fn-params-excessive-bools = "deny"
+match_bool = "warn"
+bool_to_int_with_if = "warn"
+cognitive-complexity = "warn"
+too-many-lines = "warn"
+collapsible-if = "deny"
+too-many-arguments = "deny"
+needless-range-loop = "deny"
+extend_with_drain = "deny"
+unwrap_used = "deny"

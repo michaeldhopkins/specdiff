@@ -1,0 +1,200 @@
+# SAMPLE.toml — Reference for all supported spec suite definition fields.
+#
+# This file is not loaded by spec-diff. It documents every field the
+# registry understands, when to use each one, and how they compose.
+# Copy the pattern that matches your framework and fill in the data.
+#
+# CORE PRINCIPLE: This is a recognition engine. Only what you list is
+# recognized. Unlisted AST patterns are ignored, not errored.
+#
+# CHOOSING THE RIGHT PATTERN:
+#
+# Does the framework use function-level markers (#[test], def test_)?
+#   -> Use "marker-based" spec detection
+#
+# Does the framework use DSL blocks (describe/it, test("name"))?
+#   -> Use "dsl-based" spec detection
+#
+# Does the framework use both (Go's func Test + t.Run)?
+#   -> Use "hybrid" with marker + nested DSL
+#
+# Does the framework have shared example definitions?
+#   -> Add a [shared] section
+#
+# Does the framework support parameterized tests?
+#   -> Add a [[parameterized]] section
+#
+# Does the framework support property-based testing?
+#   -> Add a [[property_based]] section
+
+
+# ---------------------------------------------------------------
+# FRAMEWORK IDENTITY
+# ---------------------------------------------------------------
+
+[[framework]]
+name = "example"
+language = "ruby"                    # tree-sitter grammar to use
+tree_sitter_crate = "tree-sitter-ruby"
+description = "Example framework"
+
+# Optional: extend another framework definition
+# extends = "rust_builtin"
+
+# Optional: additional language support
+# additional_languages = ["typescript"]
+# additional_crates = ["tree-sitter-typescript"]
+
+
+# ---------------------------------------------------------------
+# FILE DETECTION
+# ---------------------------------------------------------------
+
+[framework.files]
+extensions = [".rb"]
+include_globs = ["spec/**/*_spec.rb"]
+exclude_globs = ["spec/spec_helper.rb"]
+require_ast_confirmation = false
+
+
+# ---------------------------------------------------------------
+# GROUP NODES
+# ---------------------------------------------------------------
+
+[[framework.group]]
+ast_type = "call"
+method_names = ["describe", "context"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+
+# ---------------------------------------------------------------
+# SPEC NODES
+# ---------------------------------------------------------------
+
+[[framework.spec]]
+ast_type = "call"
+method_names = ["it", "specify"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+allow_anonymous = true
+
+
+# ---------------------------------------------------------------
+# MARKER-BASED DETECTION
+# ---------------------------------------------------------------
+
+# [[framework.marker]]
+# marker_type = "attribute"    # attribute | decorator | pragma | name_pattern
+# marker_name = "test"
+# marker_argument = "test"     # for cfg(test)
+# pattern = "^Test"            # for name_pattern
+# applies_to = "function"      # function | method | class | module
+# creates = "spec"             # spec | group
+# required_param_type = "*testing.T"
+
+
+# ---------------------------------------------------------------
+# NESTED DISCOVERY (hybrid frameworks)
+# ---------------------------------------------------------------
+
+# [[framework.nested_discovery]]
+# parent = "marker"
+# ast_type = "call_expression"
+# receiver = "t"
+# method_name = "Run"
+# name_source = "first_argument"
+# name_source_type = "string_literal"
+# creates = "spec"
+
+
+# ---------------------------------------------------------------
+# TABLE-DRIVEN TESTS
+# ---------------------------------------------------------------
+
+# [framework.table_driven]
+# enabled = true
+# slice_pattern = "composite_literal"
+# loop_pattern = "for_statement"
+# run_call = "t.Run"
+
+
+# ---------------------------------------------------------------
+# NORMALIZATION
+# ---------------------------------------------------------------
+
+[framework.normalization]
+strip_prefixes = ["test_"]
+underscore_to_space = true
+strip_camel_test_prefix = false
+raw = false
+
+
+# ---------------------------------------------------------------
+# FILE PATH GROUPING
+# ---------------------------------------------------------------
+
+[framework.path_grouping]
+strip_prefixes = ["spec/"]
+strip_suffixes = ["_spec"]
+separator = "::"
+strip_extension = true
+
+
+# ---------------------------------------------------------------
+# PARAMETERIZED TESTS
+# ---------------------------------------------------------------
+
+# [[framework.parameterized]]
+# detection = "decorator"       # decorator | attribute | macro | method_call
+# decorator_name = "pytest.mark.parametrize"
+# attribute_name = "case"
+# method_names = ["it.each"]
+# case_count_source = "second_argument"
+# case_count_type = "list_length"  # list_length | attribute_count | array_length
+# label_source = "ids_kwarg"
+# label_fallback = "first_element"
+
+
+# ---------------------------------------------------------------
+# PROPERTY-BASED TESTS
+# ---------------------------------------------------------------
+
+# [[framework.property_based]]
+# detection = "macro"            # macro | decorator
+# macro_name = "proptest"
+# decorator_name = "given"
+# decorator_module = "hypothesis"
+
+
+# ---------------------------------------------------------------
+# SHARED EXAMPLES
+# ---------------------------------------------------------------
+
+# [framework.shared]
+# definition_globs = ["spec/support/**/*.rb"]
+# scan_spec_files_for_definitions = true
+
+# [[framework.shared.definition]]
+# ast_type = "call"
+# method_names = ["shared_examples"]
+# name_source = "first_argument"
+# name_source_type = "string_literal"
+# body = "block"
+# detection_strategy = "inheritance"
+# handler = "pytest_inheritance"
+
+# [[framework.shared.inclusion]]
+# ast_type = "call"
+# method_names = ["include_examples"]
+# name_source = "first_argument"
+# name_source_type = "string_literal"
+# nesting = "inline"             # inline | nested
+# nested_name_template = "behaves like {name}"
+
+
+# ---------------------------------------------------------------
+# CUSTOM HANDLER (last resort)
+# ---------------------------------------------------------------
+
+# handler = "jest_dynamic"

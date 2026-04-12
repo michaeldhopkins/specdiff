@@ -1,0 +1,49 @@
+[[framework]]
+name = "minitest"
+language = "ruby"
+tree_sitter_crate = "tree-sitter-ruby"
+description = "Minitest — Ruby's built-in test framework"
+
+[framework.files]
+extensions = [".rb"]
+include_globs = [
+    "test/**/*_test.rb",
+    "test/**/test_*.rb",
+]
+exclude_globs = ["test/test_helper.rb"]
+require_ast_confirmation = false
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^Test"
+applies_to = "class"
+creates = "group"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^test_"
+applies_to = "method"
+creates = "spec"
+
+[[framework.group]]
+ast_type = "call"
+method_names = ["describe"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.spec]]
+ast_type = "call"
+method_names = ["it"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[framework.normalization]
+strip_prefixes = ["test_"]
+underscore_to_space = true
+strip_camel_test_prefix = true
+
+[framework.path_grouping]
+strip_prefixes = ["test/"]
+strip_suffixes = ["_test"]
+separator = "::"
+strip_extension = true

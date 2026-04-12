@@ -1,0 +1,59 @@
+[[framework]]
+name = "jest"
+language = "javascript"
+tree_sitter_crate = "tree-sitter-javascript"
+description = "Jest / Vitest / Mocha — JavaScript testing"
+additional_languages = ["typescript"]
+additional_crates = ["tree-sitter-typescript"]
+
+[framework.files]
+extensions = [".js", ".jsx", ".ts", ".tsx"]
+include_globs = [
+    "**/*.test.js", "**/*.test.ts", "**/*.test.jsx", "**/*.test.tsx",
+    "**/*.spec.js", "**/*.spec.ts", "**/*.spec.jsx", "**/*.spec.tsx",
+    "**/__tests__/**/*.js", "**/__tests__/**/*.ts",
+]
+require_ast_confirmation = false
+
+[[framework.group]]
+ast_type = "call_expression"
+method_names = ["describe"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.spec]]
+ast_type = "call_expression"
+method_names = ["it", "test"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.parameterized]]
+detection = "method_call"
+method_names = ["describe.each", "it.each", "test.each"]
+case_count_source = "first_argument"
+case_count_type = "array_length"
+
+[framework.normalization]
+raw = true
+
+[framework.path_grouping]
+strip_prefixes = ["__tests__/", "test/", "tests/"]
+strip_suffixes = [".test", ".spec"]
+separator = "::"
+strip_extension = true
+
+[framework.shared]
+definition_globs = [
+    "**/__tests__/helpers/**/*.js",
+    "**/__tests__/helpers/**/*.ts",
+    "**/test/helpers/**/*.js",
+    "**/test/helpers/**/*.ts",
+]
+scan_spec_files_for_definitions = false
+
+[[framework.shared.definition]]
+ast_type = "function_declaration"
+name_source = "identifier"
+body = "function_body"
+detection_strategy = "contains_specs_and_exported"
+handler = "jest_shared_helpers"

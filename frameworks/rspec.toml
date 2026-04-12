@@ -1,0 +1,75 @@
+[[framework]]
+name = "rspec"
+language = "ruby"
+tree_sitter_crate = "tree-sitter-ruby"
+description = "RSpec — BDD testing for Ruby"
+
+[framework.files]
+extensions = [".rb"]
+include_globs = ["spec/**/*_spec.rb"]
+exclude_globs = ["spec/spec_helper.rb", "spec/rails_helper.rb"]
+require_ast_confirmation = false
+
+[[framework.group]]
+ast_type = "call"
+method_names = ["describe", "context", "feature"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.group]]
+ast_type = "call"
+method_names = ["describe"]
+name_source = "first_argument"
+name_source_type = "constant"
+
+[[framework.spec]]
+ast_type = "call"
+method_names = ["it", "specify", "example"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+allow_anonymous = true
+
+[[framework.spec]]
+ast_type = "call"
+method_names = ["scenario"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[framework.normalization]
+raw = true
+
+[framework.path_grouping]
+strip_prefixes = ["spec/"]
+strip_suffixes = ["_spec"]
+separator = "::"
+strip_extension = true
+
+[framework.shared]
+definition_globs = [
+    "spec/support/**/*.rb",
+    "spec/shared_examples/**/*.rb",
+    "spec/shared_contexts/**/*.rb",
+]
+scan_spec_files_for_definitions = true
+
+[[framework.shared.definition]]
+ast_type = "call"
+method_names = ["shared_examples", "shared_examples_for", "shared_context"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+body = "block"
+
+[[framework.shared.inclusion]]
+ast_type = "call"
+method_names = ["include_examples", "include_context"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+nesting = "inline"
+
+[[framework.shared.inclusion]]
+ast_type = "call"
+method_names = ["it_behaves_like", "it_should_behave_like"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+nesting = "nested"
+nested_name_template = "behaves like {name}"

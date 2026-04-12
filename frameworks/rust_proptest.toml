@@ -1,0 +1,10 @@
+[[framework]]
+name = "rust_proptest"
+language = "rust"
+tree_sitter_crate = "tree-sitter-rust"
+description = "proptest — property-based testing for Rust"
+extends = "rust_builtin"
+
+[[framework.property_based]]
+detection = "macro"
+macro_name = "proptest"

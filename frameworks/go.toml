@@ -1,0 +1,42 @@
+[[framework]]
+name = "go_testing"
+language = "go"
+tree_sitter_crate = "tree-sitter-go"
+description = "Go testing package — func Test + t.Run"
+
+[framework.files]
+extensions = [".go"]
+include_globs = ["**/*_test.go"]
+require_ast_confirmation = false
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^Test"
+applies_to = "function"
+creates = "spec"
+required_param_type = "*testing.T"
+
+[[framework.nested_discovery]]
+parent = "marker"
+ast_type = "call_expression"
+receiver = "t"
+method_name = "Run"
+name_source = "first_argument"
+name_source_type = "string_literal"
+creates = "spec"
+
+[framework.table_driven]
+enabled = true
+slice_pattern = "composite_literal"
+loop_pattern = "for_statement"
+run_call = "t.Run"
+
+[framework.normalization]
+strip_camel_test_prefix = true
+underscore_to_space = false
+
+[framework.path_grouping]
+strip_prefixes = []
+strip_suffixes = ["_test"]
+separator = "::"
+strip_extension = true

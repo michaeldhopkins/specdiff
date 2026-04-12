@@ -1,0 +1,18 @@
+[[framework]]
+name = "rust_rstest"
+language = "rust"
+tree_sitter_crate = "tree-sitter-rust"
+description = "rstest — parameterized testing for Rust"
+extends = "rust_builtin"
+
+[[framework.marker]]
+marker_type = "attribute"
+marker_name = "rstest"
+applies_to = "function"
+creates = "spec"
+
+[[framework.parameterized]]
+detection = "attribute"
+attribute_name = "case"
+case_count_type = "attribute_count"
+label_source = "first_literal_in_attribute"

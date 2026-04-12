@@ -1,0 +1,33 @@
+[[framework]]
+name = "rust_builtin"
+language = "rust"
+tree_sitter_crate = "tree-sitter-rust"
+description = "Rust built-in #[test] + #[cfg(test)]"
+
+[framework.files]
+extensions = [".rs"]
+include_globs = ["src/**/*.rs", "tests/**/*.rs"]
+require_ast_confirmation = true
+
+[[framework.marker]]
+marker_type = "attribute"
+marker_name = "test"
+applies_to = "function"
+creates = "spec"
+
+[[framework.marker]]
+marker_type = "attribute"
+marker_name = "cfg"
+marker_argument = "test"
+applies_to = "module"
+creates = "group"
+
+[framework.normalization]
+strip_prefixes = ["test_"]
+underscore_to_space = true
+
+[framework.path_grouping]
+strip_prefixes = ["src/", "tests/"]
+strip_suffixes = []
+separator = "::"
+strip_extension = true
