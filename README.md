@@ -55,10 +55,20 @@ Run in a git/jj repository to see test outline changes on the current branch.
 | `--head <REV>` | Head revision (default: working copy) |
 | `--format <FORMAT>` | Output format: `tree` (default), `json`, `compact` |
 | `--changed-only` | Only show changed specs |
+| `--watch` | Start TUI watch mode with live refresh |
 | `--framework <NAME>` | Force a specific framework |
 | `--filter <PATTERN>` | Filter specs by name pattern |
+| `--no-color` | Disable colored output |
 | `-h`, `--help` | Print help |
 | `-V`, `--version` | Print version |
+
+### Watch mode
+
+```bash
+spec-diff --watch
+```
+
+Starts a terminal UI that live-refreshes when test files change. Keybindings: `q` quit, `c` toggle changed-only, `j/k` scroll, `PgUp/PgDn` page scroll.
 
 ### Example output
 

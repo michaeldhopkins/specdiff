@@ -2,6 +2,7 @@ use clap::Parser;
 
 #[derive(Parser)]
 #[command(name = "spec-diff", version, about = "Show test outline changes on a branch")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
     #[arg(long, help = "Base revision (default: merge-base with main)")]
     pub base: Option<String>,
@@ -20,6 +21,9 @@ pub struct Cli {
 
     #[arg(long, help = "Filter specs by name pattern")]
     pub filter: Option<String>,
+
+    #[arg(long, help = "Start TUI watch mode with live refresh")]
+    pub watch: bool,
 
     #[arg(long, help = "Disable colored output")]
     pub no_color: bool,

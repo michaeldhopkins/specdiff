@@ -4,6 +4,7 @@ mod cli;
 mod diff;
 mod output;
 mod parse;
+mod tui;
 mod vcs;
 
 use anyhow::{Context, Result};
@@ -14,6 +15,10 @@ use std::path::{Path, PathBuf};
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
 
+    if cli.watch {
+        return tui::run_watch(&cli);
+    }
+
     match (&cli.base_dir, &cli.head_dir) {
         (Some(base_dir), Some(head_dir)) => run_directory_diff(base_dir, head_dir, &cli),
         (Some(_), None) | (None, Some(_)) => {
@@ -23,7 +28,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn detect_vcs(start: &Path) -> Result<Box<dyn vcs::Vcs>> {
+pub fn detect_vcs(start: &Path) -> Result<Box<dyn vcs::Vcs>> {
     if start.join(".jj").exists() {
         let jj = vcs::jj::JjVcs::open(start)?;
         return Ok(Box::new(jj));
