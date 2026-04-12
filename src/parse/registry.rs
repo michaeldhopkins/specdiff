@@ -249,6 +249,7 @@ pub fn frameworks_for_file(path: &Path) -> Vec<&'static FrameworkDef> {
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| format!(".{e}"));
+    let path_str = path.to_string_lossy();
 
     all_frameworks()
         .iter()
@@ -256,12 +257,32 @@ pub fn frameworks_for_file(path: &Path) -> Vec<&'static FrameworkDef> {
             let Some(files) = &fw.files else {
                 return false;
             };
-            if let Some(ext) = &extension {
-                if files.extensions.contains(ext) {
-                    return true;
-                }
+
+            let ext_matches = extension
+                .as_ref()
+                .is_some_and(|ext| files.extensions.contains(ext));
+            if !ext_matches {
+                return false;
             }
-            false
+
+            if files.include_globs.is_empty() {
+                return true;
+            }
+
+            let included = files.include_globs.iter().any(|g| {
+                glob::Pattern::new(g)
+                    .is_ok_and(|pat| pat.matches(&path_str))
+            });
+            if !included {
+                return false;
+            }
+
+            let excluded = files.exclude_globs.iter().any(|g| {
+                glob::Pattern::new(g)
+                    .is_ok_and(|pat| pat.matches(&path_str))
+            });
+
+            !excluded
         })
         .collect()
 }
@@ -310,5 +331,29 @@ mod tests {
     fn frameworks_for_rust_file() {
         let matches = frameworks_for_file(Path::new("src/lib.rs"));
         assert!(matches.iter().any(|f| f.name == "rust_builtin"));
+    }
+
+    #[test]
+    fn ruby_file_outside_spec_dir_does_not_match_rspec() {
+        let matches = frameworks_for_file(Path::new("lib/models/user.rb"));
+        assert!(!matches.iter().any(|f| f.name == "rspec"), "lib/ .rb should not match rspec");
+    }
+
+    #[test]
+    fn minitest_file_matches_test_dir() {
+        let matches = frameworks_for_file(Path::new("test/models/user_test.rb"));
+        assert!(matches.iter().any(|f| f.name == "minitest"));
+    }
+
+    #[test]
+    fn ruby_file_outside_test_dir_does_not_match_minitest() {
+        let matches = frameworks_for_file(Path::new("app/models/user.rb"));
+        assert!(!matches.iter().any(|f| f.name == "minitest"), "app/ .rb should not match minitest");
+    }
+
+    #[test]
+    fn excluded_files_do_not_match() {
+        let matches = frameworks_for_file(Path::new("spec/spec_helper.rb"));
+        assert!(!matches.iter().any(|f| f.name == "rspec"), "spec_helper.rb should be excluded");
     }
 }

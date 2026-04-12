@@ -228,37 +228,42 @@ mod tests {
         assert_eq!(diff[0].children[0].kind, DiffKind::Added);
     }
 
+    fn read_fixture(rel_path: &str) -> Option<String> {
+        let fixtures_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures");
+        let fixtures_path = std::path::Path::new(fixtures_dir);
+        if !fixtures_path.exists() {
+            eprintln!("skipping fixture test: specdiff-tests repo not found");
+            return None;
+        }
+        let full = fixtures_path.join(rel_path);
+        Some(std::fs::read_to_string(&full)
+            .unwrap_or_else(|e| panic!("fixture {} should be readable: {e}", full.display())))
+    }
+
     #[test]
     fn diff_rspec_fixture_pair() {
         use crate::parse::engine::parse_file;
         use crate::parse::registry::all_frameworks;
 
+        let Some(base_src) = read_fixture("rspec/base/spec/models/user_spec.rb") else { return };
+        let Some(head_src) = read_fixture("rspec/head/spec/models/user_spec.rb") else { return };
+
         let rspec = all_frameworks().iter().find(|f| f.name == "rspec").expect("rspec");
+        let base_tree = parse_file(&base_src, "spec/models/user_spec.rb", rspec).expect("base");
+        let head_tree = parse_file(&head_src, "spec/models/user_spec.rb", rspec).expect("head");
 
-        let base_source = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures/rspec/base/spec/models/user_spec.rb")
-        );
-        let head_source = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures/rspec/head/spec/models/user_spec.rb")
-        );
+        let diff = diff_spec_nodes(&base_tree.root, &head_tree.root);
+        assert_eq!(diff.len(), 1);
 
-        if let (Ok(base_src), Ok(head_src)) = (base_source, head_source) {
-            let base_tree = parse_file(&base_src, "spec/models/user_spec.rb", rspec).expect("base");
-            let head_tree = parse_file(&head_src, "spec/models/user_spec.rb", rspec).expect("head");
+        let user = &diff[0];
+        assert_eq!(user.kind, DiffKind::Modified);
 
-            let diff = diff_spec_nodes(&base_tree.root, &head_tree.root);
-            assert_eq!(diff.len(), 1);
+        let validations = &user.children[0];
+        assert_eq!(validations.kind, DiffKind::Modified);
 
-            let user = &diff[0];
-            assert_eq!(user.kind, DiffKind::Modified);
-
-            let validations = &user.children[0];
-            assert_eq!(validations.kind, DiffKind::Modified);
-
-            let has_added = validations.children.iter().any(|d| d.kind == DiffKind::Added);
-            let has_renamed = validations.children.iter().any(|d| d.kind == DiffKind::Renamed);
-            assert!(has_added || has_renamed, "should detect changes in validations");
-        }
+        let has_added = validations.children.iter().any(|d| d.kind == DiffKind::Added);
+        let has_renamed = validations.children.iter().any(|d| d.kind == DiffKind::Renamed);
+        assert!(has_added || has_renamed, "should detect changes in validations");
     }
 
     #[test]
@@ -277,5 +282,57 @@ mod tests {
     fn name_similarity_empty() {
         assert_eq!(name_similarity("", "foo"), 0.0);
         assert_eq!(name_similarity("foo", ""), 0.0);
+    }
+
+    #[test]
+    fn diff_all_new_specs() {
+        let base: Vec<SpecNode> = vec![];
+        let head = vec![
+            SpecNode::spec("test one", 1),
+            SpecNode::spec("test two", 2),
+        ];
+        let diff = diff_spec_nodes(&base, &head);
+        assert_eq!(diff.len(), 2);
+        assert!(diff.iter().all(|d| d.kind == DiffKind::Added));
+    }
+
+    #[test]
+    fn diff_all_deleted_specs() {
+        let base = vec![
+            SpecNode::spec("test one", 1),
+            SpecNode::spec("test two", 2),
+        ];
+        let head: Vec<SpecNode> = vec![];
+        let diff = diff_spec_nodes(&base, &head);
+        assert_eq!(diff.len(), 2);
+        assert!(diff.iter().all(|d| d.kind == DiffKind::Removed));
+    }
+
+    #[test]
+    fn diff_renamed_group_shows_as_removed_and_added() {
+        let base = vec![SpecNode::group(
+            "User",
+            1,
+            vec![SpecNode::spec("has name", 2)],
+        )];
+        let head = vec![SpecNode::group(
+            "Account",
+            1,
+            vec![SpecNode::spec("has name", 2)],
+        )];
+        let diff = diff_spec_nodes(&base, &head);
+        assert_eq!(diff.len(), 2, "renamed group should be removed + added, not renamed");
+        assert_eq!(diff[0].kind, DiffKind::Removed);
+        assert_eq!(diff[0].name, "User");
+        assert_eq!(diff[1].kind, DiffKind::Added);
+        assert_eq!(diff[1].name, "Account");
+    }
+
+    #[test]
+    fn diff_empty_trees() {
+        let base: Vec<SpecNode> = vec![];
+        let head: Vec<SpecNode> = vec![];
+        let diff = diff_spec_nodes(&base, &head);
+        assert!(diff.is_empty());
     }
 }

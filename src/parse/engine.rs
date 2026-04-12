@@ -116,11 +116,11 @@ fn extract_method_name(node: Node, source: &str) -> Option<String> {
     match node.kind() {
         "call" => {
             let method_node = node.child_by_field_name("method")?;
-            Some(node_text(method_node, source))
+            node_text(method_node, source)
         }
         "call_expression" => {
             let function_node = node.child_by_field_name("function")?;
-            Some(node_text(function_node, source))
+            node_text(function_node, source)
         }
         _ => None,
     }
@@ -138,13 +138,13 @@ fn extract_name(
             let first_arg = args.named_child(0)?;
             match name_source_type {
                 Some("string_literal") => extract_string_content(first_arg, source),
-                Some("constant") => Some(node_text(first_arg, source)),
-                _ => Some(node_text(first_arg, source)),
+                Some("constant") => node_text(first_arg, source),
+                _ => node_text(first_arg, source),
             }
         }
         "identifier" => {
             let name_node = node.child_by_field_name("name")?;
-            Some(node_text(name_node, source))
+            node_text(name_node, source)
         }
         _ => None,
     }
@@ -178,26 +178,18 @@ fn extract_string_content(node: Node, source: &str) -> Option<String> {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "string_content" {
-                    return Some(node_text(child, source));
+                    return node_text(child, source);
                 }
             }
-            let text = node_text(node, source);
-            let trimmed = text
-                .strip_prefix('"')
-                .or_else(|| text.strip_prefix('\''))
-                .unwrap_or(&text);
-            let trimmed = trimmed
-                .strip_suffix('"')
-                .or_else(|| trimmed.strip_suffix('\''))
-                .unwrap_or(trimmed);
-            Some(trimmed.to_string())
+            let text = node_text(node, source)?;
+            Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
         }
         _ => None,
     }
 }
 
-fn node_text(node: Node, source: &str) -> String {
-    source[node.byte_range()].to_string()
+fn node_text(node: Node, source: &str) -> Option<String> {
+    source.get(node.byte_range()).map(|s| s.to_string())
 }
 
 fn try_match_marker_node(
@@ -246,7 +238,7 @@ fn try_match_attribute_marker(
     }
 
     let name_node = node.child_by_field_name("name")?;
-    let name = node_text(name_node, source);
+    let name = node_text(name_node, source)?;
 
     let normalized = normalize_name(&name, framework);
 
@@ -277,12 +269,7 @@ fn has_attribute(node: Node, source: &str, attr_name: &str, attr_argument: Optio
     let mut sibling = node.prev_sibling();
     while let Some(sib) = sibling {
         if sib.kind() == "attribute_item" {
-            let attr_text = node_text(sib, source);
-            if let Some(arg) = attr_argument {
-                if attr_text.contains(attr_name) && attr_text.contains(arg) {
-                    return true;
-                }
-            } else if attr_text.contains(attr_name) {
+            if attribute_matches(sib, source, attr_name, attr_argument) {
                 return true;
             }
         } else if sib.kind() != "attribute_item" && sib.kind() != "line_comment" && sib.kind() != "block_comment" {
@@ -291,6 +278,40 @@ fn has_attribute(node: Node, source: &str, attr_name: &str, attr_argument: Optio
         sibling = sib.prev_sibling();
     }
 
+    false
+}
+
+fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argument: Option<&str>) -> bool {
+    let mut cursor = attr_item.walk();
+    for child in attr_item.children(&mut cursor) {
+        if child.kind() == "attribute" {
+            let ident = child.child_by_field_name("path")
+                .or_else(|| {
+                    let mut c = child.walk();
+                    child.children(&mut c).find(|n| n.kind() == "identifier")
+                });
+            let Some(ident) = ident else { continue };
+            if node_text(ident, source).as_deref() != Some(attr_name) {
+                continue;
+            }
+
+            if let Some(arg) = attr_argument {
+                let mut c2 = child.walk();
+                let has_arg = child.children(&mut c2).any(|n| {
+                    if n.kind() == "token_tree" {
+                        let mut c3 = n.walk();
+                        return n.children(&mut c3).any(|inner| {
+                            inner.kind() == "identifier" && node_text(inner, source).as_deref() == Some(arg)
+                        });
+                    }
+                    false
+                });
+                return has_arg;
+            }
+
+            return true;
+        }
+    }
     false
 }
 
@@ -320,7 +341,7 @@ fn try_match_name_pattern_marker(
     }
 
     let name_node = node.child_by_field_name("name")?;
-    let name = node_text(name_node, source);
+    let name = node_text(name_node, source)?;
 
     let pattern = marker.pattern.as_deref()?;
     if !matches_pattern(&name, pattern) {
@@ -530,31 +551,35 @@ fn test_standalone() {
         assert_eq!(tree.root[0].kind, SpecKind::Spec);
     }
 
+    fn read_fixture(rel_path: &str) -> Option<String> {
+        let fixtures_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures");
+        let fixtures_path = std::path::Path::new(fixtures_dir);
+        if !fixtures_path.exists() {
+            eprintln!("skipping fixture test: specdiff-tests repo not found at {fixtures_dir}");
+            return None;
+        }
+        let full = fixtures_path.join(rel_path);
+        Some(std::fs::read_to_string(&full)
+            .unwrap_or_else(|e| panic!("fixture file {} should be readable: {e}", full.display())))
+    }
+
     #[test]
     fn parse_rspec_fixture_base() {
-        let source = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures/rspec/base/spec/models/user_spec.rb")
-        );
-        if let Ok(source) = source {
-            let tree = parse_file(&source, "spec/models/user_spec.rb", rspec_framework());
-            let tree = tree.expect("parsed fixture");
-            let user = &tree.root[0];
-            assert_eq!(user.children.len(), 2);
-        }
+        let Some(source) = read_fixture("rspec/base/spec/models/user_spec.rb") else { return };
+        let tree = parse_file(&source, "spec/models/user_spec.rb", rspec_framework());
+        let tree = tree.expect("parsed fixture");
+        let user = &tree.root[0];
+        assert_eq!(user.children.len(), 2);
     }
 
     #[test]
     fn parse_rust_fixture_base() {
-        let source = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures/rust_builtin/base/src/lib.rs")
-        );
-        if let Ok(source) = source {
-            let tree = parse_file(&source, "src/lib.rs", rust_framework());
-            let tree = tree.expect("parsed fixture");
-            assert_eq!(tree.root.len(), 1);
-            let tests_mod = &tree.root[0];
-            assert_eq!(tests_mod.children.len(), 3);
-        }
+        let Some(source) = read_fixture("rust_builtin/base/src/lib.rs") else { return };
+        let tree = parse_file(&source, "src/lib.rs", rust_framework());
+        let tree = tree.expect("parsed fixture");
+        assert_eq!(tree.root.len(), 1);
+        let tests_mod = &tree.root[0];
+        assert_eq!(tests_mod.children.len(), 3);
     }
 
     #[test]
@@ -563,6 +588,23 @@ fn test_standalone() {
         assert_eq!(normalize_name("test_addition", fw), "addition");
         assert_eq!(normalize_name("test_my_func", fw), "my func");
         assert_eq!(normalize_name("helper_func", fw), "helper func");
+    }
+
+    #[test]
+    fn rust_attribute_no_false_positives() {
+        let source = r#"
+#[testing_helper]
+fn setup_testing() {}
+
+#[test]
+fn test_real() {
+    assert!(true);
+}
+"#;
+        let tree = parse_file(source, "tests/basic.rs", rust_framework());
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.root.len(), 1, "should only find #[test], not #[testing_helper]");
+        assert_eq!(tree.root[0].name, "real");
     }
 
     fn minitest_framework() -> &'static FrameworkDef {
@@ -600,15 +642,23 @@ end
 
     #[test]
     fn parse_minitest_fixture_base() {
-        let source = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures/minitest/base/test/models/user_test.rb")
-        );
-        if let Ok(source) = source {
-            let tree = parse_file(&source, "test/models/user_test.rb", minitest_framework());
-            let tree = tree.expect("parsed fixture");
-            assert_eq!(tree.root.len(), 1);
-            let user_class = &tree.root[0];
-            assert_eq!(user_class.children.len(), 3);
-        }
+        let Some(source) = read_fixture("minitest/base/test/models/user_test.rb") else { return };
+        let tree = parse_file(&source, "test/models/user_test.rb", minitest_framework());
+        let tree = tree.expect("parsed fixture");
+        assert_eq!(tree.root.len(), 1);
+        let user_class = &tree.root[0];
+        assert_eq!(user_class.children.len(), 3);
+    }
+
+    #[test]
+    fn parse_empty_source_returns_none() {
+        assert!(parse_file("", "spec/empty_spec.rb", rspec_framework()).is_none());
+        assert!(parse_file("", "src/lib.rs", rust_framework()).is_none());
+    }
+
+    #[test]
+    fn parse_source_with_no_tests_returns_none() {
+        let source = "class User\n  def name\n    @name\n  end\nend\n";
+        assert!(parse_file(source, "spec/models/user_spec.rb", rspec_framework()).is_none());
     }
 }
