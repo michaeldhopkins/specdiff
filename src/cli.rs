@@ -20,6 +20,12 @@ pub struct Cli {
 
     #[arg(long, help = "Filter specs by name pattern")]
     pub filter: Option<String>,
+
+    #[arg(long, help = "Base directory (for testing without VCS)")]
+    pub base_dir: Option<String>,
+
+    #[arg(long, help = "Head directory (for testing without VCS)")]
+    pub head_dir: Option<String>,
 }
 
 #[derive(Clone, clap::ValueEnum)]
