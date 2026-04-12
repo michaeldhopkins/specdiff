@@ -31,12 +31,14 @@ fn cli_help() {
 }
 
 #[test]
-fn cli_no_args_errors() {
+fn cli_no_args_in_non_repo_errors() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
     Command::cargo_bin("spec-diff")
         .expect("binary")
+        .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("VCS mode not yet implemented"));
+        .stderr(predicate::str::contains("no git repository"));
 }
 
 #[test]

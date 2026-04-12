@@ -1,7 +1,10 @@
+pub mod git;
+pub mod jj;
+
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-pub trait Vcs: Send + Sync {
+pub trait Vcs {
     fn changed_files(&self, base: &str, head: &str) -> Result<Vec<PathBuf>>;
     fn file_at_revision(&self, path: &Path, rev: &str) -> Result<String>;
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
