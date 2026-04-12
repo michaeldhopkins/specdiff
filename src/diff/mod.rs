@@ -1,7 +1,7 @@
 pub mod types;
 
 use crate::parse::{SpecKind, SpecNode};
-use types::{DiffKind, DiffNode};
+use types::{DiffKind, DiffNode, FileDiff};
 
 pub fn diff_spec_nodes(base: &[SpecNode], head: &[SpecNode]) -> Vec<DiffNode> {
     let mut results = Vec::new();
@@ -123,6 +123,41 @@ fn name_similarity(a: &str, b: &str) -> f64 {
     }
 
     common as f64 / total as f64
+}
+
+pub fn filter_file_diffs(file_diffs: Vec<FileDiff>, pattern: &str) -> Vec<FileDiff> {
+    let pattern_lower = pattern.to_lowercase();
+    file_diffs
+        .into_iter()
+        .filter_map(|mut fd| {
+            if fd.path.to_lowercase().contains(&pattern_lower) {
+                return Some(fd);
+            }
+            fd.nodes = filter_nodes(fd.nodes, &pattern_lower);
+            if fd.nodes.is_empty() {
+                None
+            } else {
+                Some(fd)
+            }
+        })
+        .collect()
+}
+
+fn filter_nodes(nodes: Vec<DiffNode>, pattern: &str) -> Vec<DiffNode> {
+    nodes
+        .into_iter()
+        .filter_map(|mut node| {
+            if node.name.to_lowercase().contains(pattern) {
+                return Some(node);
+            }
+            node.children = filter_nodes(node.children, pattern);
+            if node.children.is_empty() {
+                None
+            } else {
+                Some(node)
+            }
+        })
+        .collect()
 }
 
 fn make_added(node: &SpecNode) -> DiffNode {
@@ -334,5 +369,65 @@ mod tests {
         let head: Vec<SpecNode> = vec![];
         let diff = diff_spec_nodes(&base, &head);
         assert!(diff.is_empty());
+    }
+
+    #[test]
+    fn filter_file_diffs_by_name() {
+        let diffs = vec![
+            FileDiff {
+                path: "models::user".into(),
+                nodes: vec![
+                    DiffNode { name: "validates email".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                    DiffNode { name: "has many posts".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                ],
+            },
+            FileDiff {
+                path: "models::post".into(),
+                nodes: vec![
+                    DiffNode { name: "belongs to user".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                ],
+            },
+        ];
+
+        let filtered = filter_file_diffs(diffs, "email");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].path, "models::user");
+        assert_eq!(filtered[0].nodes.len(), 1);
+        assert_eq!(filtered[0].nodes[0].name, "validates email");
+    }
+
+    #[test]
+    fn filter_file_diffs_by_path() {
+        let diffs = vec![
+            FileDiff {
+                path: "models::user".into(),
+                nodes: vec![
+                    DiffNode { name: "test".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                ],
+            },
+            FileDiff {
+                path: "models::post".into(),
+                nodes: vec![
+                    DiffNode { name: "test".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                ],
+            },
+        ];
+
+        let filtered = filter_file_diffs(diffs, "post");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].path, "models::post");
+    }
+
+    #[test]
+    fn filter_is_case_insensitive() {
+        let diffs = vec![FileDiff {
+            path: "models::user".into(),
+            nodes: vec![
+                DiffNode { name: "Validates Email".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+            ],
+        }];
+
+        let filtered = filter_file_diffs(diffs, "email");
+        assert_eq!(filtered.len(), 1);
     }
 }

@@ -125,3 +125,38 @@ fn cli_changed_only_flag() {
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
     assert!(!stdout.contains("   associations\n       has many posts\n"), "unchanged associations group should be filtered");
 }
+
+#[test]
+fn cli_base_dir_without_head_dir_errors() {
+    Command::cargo_bin("spec-diff")
+        .expect("binary")
+        .args(["--base-dir", "/tmp/nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be used together"));
+}
+
+#[test]
+fn cli_filter_flag() {
+    let Some(fixtures) = fixtures_dir() else {
+        eprintln!("skipping: specdiff-tests not found");
+        return;
+    };
+    let base = fixtures.join("rspec/base");
+    let head = fixtures.join("rspec/head");
+
+    let output = Command::cargo_bin("spec-diff")
+        .expect("binary")
+        .args([
+            "--base-dir", base.to_str().expect("utf8"),
+            "--head-dir", head.to_str().expect("utf8"),
+            "--filter", "admin",
+            "--no-color",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("admin"), "should show admin specs");
+    assert!(!stdout.contains("validates email"), "should not show non-matching specs");
+}

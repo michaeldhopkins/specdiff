@@ -15,7 +15,9 @@ pub fn format_json(file_diffs: &[FileDiff]) -> anyhow::Result<String> {
 }
 
 pub fn format_tree(file_diffs: &[FileDiff], changed_only: bool, color: bool) -> String {
-    let use_color = color && std::io::stdout().is_terminal();
+    let use_color = color
+        && std::io::stdout().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none();
     let mut output = String::new();
 
     let stats = count_stats(file_diffs);
@@ -100,12 +102,12 @@ fn count_stats(file_diffs: &[FileDiff]) -> Stats {
 
 fn count_nodes(nodes: &[DiffNode], stats: &mut Stats) {
     for node in nodes {
+        let is_leaf = node.children.is_empty();
         match node.kind {
-            DiffKind::Added => stats.added += 1,
-            DiffKind::Removed => stats.removed += 1,
+            DiffKind::Added if is_leaf => stats.added += 1,
+            DiffKind::Removed if is_leaf => stats.removed += 1,
             DiffKind::Renamed => stats.renamed += 1,
-            DiffKind::Modified => stats.modified += 1,
-            DiffKind::Unchanged => {}
+            DiffKind::Added | DiffKind::Modified | DiffKind::Unchanged | DiffKind::Removed => {}
         }
         count_nodes(&node.children, stats);
     }
@@ -242,8 +244,7 @@ mod tests {
     fn tree_format_shows_stats_header() {
         let output = format_tree(&sample_file_diffs(), false, false);
         assert!(output.contains("spec-diff"), "should show header");
-        assert!(output.contains("+1"), "should show added count");
-        assert!(output.contains("~1"), "should show modified count");
+        assert!(output.contains("+1"), "should show added count (leaf specs only)");
     }
 
     #[test]

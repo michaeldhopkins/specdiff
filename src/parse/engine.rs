@@ -169,16 +169,22 @@ fn find_block(node: Node) -> Option<Node> {
     for child in node.children(&mut cursor) {
         match child.kind() {
             "block" | "do_block" | "statement_block" => return Some(child),
-            "arguments" => {
+            "arguments" | "argument_list" => {
                 let mut c2 = child.walk();
                 for arg in child.children(&mut c2) {
-                    if arg.kind() == "arrow_function" || arg.kind() == "function" {
-                        let mut c3 = arg.walk();
-                        for inner in arg.children(&mut c3) {
-                            if inner.kind() == "statement_block" {
-                                return Some(inner);
+                    match arg.kind() {
+                        "arrow_function" | "function" => {
+                            let mut c3 = arg.walk();
+                            for inner in arg.children(&mut c3) {
+                                if inner.kind() == "statement_block" {
+                                    return Some(inner);
+                                }
                             }
                         }
+                        "func_literal" => {
+                            return arg.child_by_field_name("body");
+                        }
+                        _ => {}
                     }
                 }
             }

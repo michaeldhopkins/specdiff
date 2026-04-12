@@ -126,6 +126,10 @@ impl Vcs for GitVcs {
 
         Ok(files)
     }
+
+    fn default_head_rev(&self) -> &str {
+        "HEAD"
+    }
 }
 
 #[cfg(test)]

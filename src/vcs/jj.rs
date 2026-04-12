@@ -92,4 +92,8 @@ impl Vcs for JjVcs {
             .map(|line| PathBuf::from(line.trim()))
             .collect())
     }
+
+    fn default_head_rev(&self) -> &str {
+        "@"
+    }
 }

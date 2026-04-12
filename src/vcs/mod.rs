@@ -10,6 +10,7 @@ pub trait Vcs {
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
     fn current_branch(&self) -> Result<String>;
     fn files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>>;
+    fn default_head_rev(&self) -> &str;
 }
 
 pub struct StubVcs {
@@ -51,5 +52,9 @@ impl Vcs for StubVcs {
 
     fn files_matching(&self, _pattern: &str) -> Result<Vec<PathBuf>> {
         Ok(vec![])
+    }
+
+    fn default_head_rev(&self) -> &str {
+        "HEAD"
     }
 }
