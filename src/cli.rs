@@ -21,6 +21,9 @@ pub struct Cli {
     #[arg(long, help = "Filter specs by name pattern")]
     pub filter: Option<String>,
 
+    #[arg(long, help = "Disable colored output")]
+    pub no_color: bool,
+
     #[arg(long, help = "Base directory (for testing without VCS)")]
     pub base_dir: Option<String>,
 

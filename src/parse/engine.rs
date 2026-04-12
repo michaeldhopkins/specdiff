@@ -370,13 +370,40 @@ fn try_match_name_pattern_marker(
     let normalized = normalize_name(&name, framework);
 
     match marker.creates.as_str() {
-        "spec" => Some(SpecNode {
-            name: normalized,
-            kind: SpecKind::Spec,
-            children: vec![],
-            line: node.start_position().row + 1,
-            parameterized: None,
-        }),
+        "spec" => {
+            let nested = if !framework.nested_discovery.is_empty() {
+                let body_node = node.child_by_field_name("body")
+                    .or_else(|| {
+                        let mut c = node.walk();
+                        node.children(&mut c).find(|n| n.kind() == "block" || n.kind() == "statement_block")
+                    });
+                if let Some(body) = body_node {
+                    find_nested_specs(body, source, framework)
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            };
+
+            if nested.is_empty() {
+                Some(SpecNode {
+                    name: normalized,
+                    kind: SpecKind::Spec,
+                    children: vec![],
+                    line: node.start_position().row + 1,
+                    parameterized: None,
+                })
+            } else {
+                Some(SpecNode {
+                    name: normalized,
+                    kind: SpecKind::Group,
+                    children: nested,
+                    line: node.start_position().row + 1,
+                    parameterized: None,
+                })
+            }
+        }
         "group" => {
             let body_node = node.child_by_field_name("body")
                 .or_else(|| {
@@ -398,6 +425,74 @@ fn try_match_name_pattern_marker(
         }
         _ => None,
     }
+}
+
+fn find_nested_specs(node: Node, source: &str, framework: &FrameworkDef) -> Vec<SpecNode> {
+    let mut results = Vec::new();
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        if let Some(spec) = try_match_nested_call(child, source, framework) {
+            results.push(spec);
+        } else {
+            results.extend(find_nested_specs(child, source, framework));
+        }
+    }
+
+    results
+}
+
+fn try_match_nested_call(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+) -> Option<SpecNode> {
+    for nd in &framework.nested_discovery {
+        if node.kind() != nd.ast_type {
+            continue;
+        }
+
+        let func_node = node.child_by_field_name("function")?;
+        let func_text = node_text(func_node, source)?;
+
+        let expected = match (&nd.receiver, &nd.method_name) {
+            (Some(recv), Some(method)) => format!("{recv}.{method}"),
+            _ => continue,
+        };
+
+        if func_text != expected {
+            continue;
+        }
+
+        let args = find_arguments(node)?;
+        let first_arg = args.named_child(0)?;
+        let name = extract_string_content(first_arg, source)?;
+
+        let nested_children = {
+            let block = find_block(node);
+            if let Some(b) = block {
+                find_nested_specs(b, source, framework)
+            } else {
+                vec![]
+            }
+        };
+
+        let kind = if nested_children.is_empty() {
+            SpecKind::Spec
+        } else {
+            SpecKind::Group
+        };
+
+        return Some(SpecNode {
+            name,
+            kind,
+            children: nested_children,
+            line: node.start_position().row + 1,
+            parameterized: None,
+        });
+    }
+
+    None
 }
 
 fn matches_pattern(name: &str, pattern: &str) -> bool {
@@ -764,10 +859,30 @@ end
     }
 
     #[test]
+    fn parse_go_t_run_subtests() {
+        let source = "package user\n\nimport \"testing\"\n\nfunc TestCreate(t *testing.T) {\n\tt.Run(\"with valid name\", func(t *testing.T) {})\n\tt.Run(\"with valid email\", func(t *testing.T) {})\n}\n";
+        let tree = parse_file(source, "user_test.go", go_framework());
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+
+        let create = &tree.root[0];
+        assert_eq!(create.name, "Create");
+        assert_eq!(create.kind, SpecKind::Group);
+        assert_eq!(create.children.len(), 2);
+        assert_eq!(create.children[0].name, "with valid name");
+        assert_eq!(create.children[1].name, "with valid email");
+    }
+
+    #[test]
     fn parse_go_fixture() {
         let Some(source) = read_fixture("go/base/user_test.go") else { return };
         let tree = parse_file(&source, "user_test.go", go_framework());
         let tree = tree.expect("parsed fixture");
         assert_eq!(tree.root.len(), 2);
+
+        let create = &tree.root[0];
+        assert_eq!(create.name, "CreateUser");
+        assert_eq!(create.kind, SpecKind::Group);
+        assert_eq!(create.children.len(), 2, "should find 2 t.Run subtests");
     }
 }

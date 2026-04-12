@@ -88,7 +88,7 @@ fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
     }
 
     let output_str = match cli.format {
-        cli::OutputFormat::Tree => output::format_tree(&all_diff_nodes, cli.changed_only),
+        cli::OutputFormat::Tree => output::format_tree(&all_diff_nodes, cli.changed_only, !cli.no_color),
         cli::OutputFormat::Json => output::format_json(&all_diff_nodes)
             .context("failed to serialize JSON")?,
         cli::OutputFormat::Compact => output::format_compact(&all_diff_nodes),
@@ -146,7 +146,7 @@ fn run_directory_diff(base_dir: &str, head_dir: &str, cli: &cli::Cli) -> Result<
     }
 
     let output_str = match cli.format {
-        cli::OutputFormat::Tree => output::format_tree(&all_diff_nodes, cli.changed_only),
+        cli::OutputFormat::Tree => output::format_tree(&all_diff_nodes, cli.changed_only, !cli.no_color),
         cli::OutputFormat::Json => output::format_json(&all_diff_nodes)
             .context("failed to serialize JSON")?,
         cli::OutputFormat::Compact => output::format_compact(&all_diff_nodes),

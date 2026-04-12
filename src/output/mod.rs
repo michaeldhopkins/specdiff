@@ -1,14 +1,23 @@
 use crate::diff::types::{DiffKind, DiffNode};
 use std::fmt::Write;
+use std::io::IsTerminal;
+
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
+const YELLOW: &str = "\x1b[33m";
+const CYAN: &str = "\x1b[36m";
+const DIM: &str = "\x1b[2m";
+const RESET: &str = "\x1b[0m";
 
 pub fn format_json(nodes: &[DiffNode]) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(nodes)?)
 }
 
-pub fn format_tree(nodes: &[DiffNode], changed_only: bool) -> String {
+pub fn format_tree(nodes: &[DiffNode], changed_only: bool, color: bool) -> String {
+    let use_color = color && std::io::stdout().is_terminal();
     let mut output = String::new();
     for node in nodes {
-        format_tree_node(node, &mut output, 0, changed_only);
+        format_tree_node(node, &mut output, 0, changed_only, use_color);
     }
     output
 }
@@ -19,35 +28,45 @@ pub fn format_compact(nodes: &[DiffNode]) -> String {
     output
 }
 
-fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_only: bool) {
+fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_only: bool, color: bool) {
     if changed_only && node.kind == DiffKind::Unchanged && !has_changes(node) {
         return;
     }
 
     let indent = "  ".repeat(depth);
-    let prefix = match node.kind {
-        DiffKind::Added => "+ ",
-        DiffKind::Removed => "- ",
-        DiffKind::Renamed => "->",
-        DiffKind::Modified => "~ ",
-        DiffKind::Unchanged => "  ",
+    let (prefix, color_start, color_end) = if color {
+        match node.kind {
+            DiffKind::Added => ("+ ", GREEN, RESET),
+            DiffKind::Removed => ("- ", RED, RESET),
+            DiffKind::Renamed => ("->", YELLOW, RESET),
+            DiffKind::Modified => ("~ ", CYAN, RESET),
+            DiffKind::Unchanged => ("  ", DIM, RESET),
+        }
+    } else {
+        match node.kind {
+            DiffKind::Added => ("+ ", "", ""),
+            DiffKind::Removed => ("- ", "", ""),
+            DiffKind::Renamed => ("->", "", ""),
+            DiffKind::Modified => ("~ ", "", ""),
+            DiffKind::Unchanged => ("  ", "", ""),
+        }
     };
 
     match node.kind {
         DiffKind::Renamed => {
             if let Some(old) = &node.old_name {
-                let _ = writeln!(output, "{prefix} {indent}{old} -> {}", node.name);
+                let _ = writeln!(output, "{color_start}{prefix} {indent}{old} -> {}{color_end}", node.name);
             } else {
-                let _ = writeln!(output, "{prefix} {indent}{}", node.name);
+                let _ = writeln!(output, "{color_start}{prefix} {indent}{}{color_end}", node.name);
             }
         }
         _ => {
-            let _ = writeln!(output, "{prefix} {indent}{}", node.name);
+            let _ = writeln!(output, "{color_start}{prefix} {indent}{}{color_end}", node.name);
         }
     }
 
     for child in &node.children {
-        format_tree_node(child, output, depth + 1, changed_only);
+        format_tree_node(child, output, depth + 1, changed_only, color);
     }
 }
 
@@ -133,7 +152,7 @@ mod tests {
 
     #[test]
     fn tree_format_shows_all() {
-        let output = format_tree(&sample_diff(), false);
+        let output = format_tree(&sample_diff(), false, false);
         assert!(output.contains("~  User"), "missing User, got:\n{output}");
         assert!(output.contains("validations"), "missing validations");
         assert!(output.contains("validates email"), "missing validates email");
@@ -144,7 +163,7 @@ mod tests {
 
     #[test]
     fn tree_format_changed_only() {
-        let output = format_tree(&sample_diff(), true);
+        let output = format_tree(&sample_diff(), true, false);
         assert!(output.contains("User"));
         assert!(output.contains("validations"));
         assert!(output.contains("validates uniqueness"));
@@ -165,5 +184,11 @@ mod tests {
         let json = format_json(&diff).expect("json");
         assert!(json.contains("\"Modified\""));
         assert!(json.contains("validates uniqueness"));
+    }
+
+    #[test]
+    fn tree_format_no_color_has_no_escape_codes() {
+        let output = format_tree(&sample_diff(), false, false);
+        assert!(!output.contains("\x1b["), "no-color output should not contain ANSI codes");
     }
 }
