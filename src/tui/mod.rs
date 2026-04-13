@@ -1,9 +1,10 @@
 mod render;
 
 use crate::cli::Cli;
+use crate::diff::filter_file_diffs;
 use crate::diff::types::FileDiff;
-use crate::diff::{self, filter_file_diffs};
 use crate::parse;
+use crate::pipeline::{self, VcsSource};
 use crate::vcs;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -14,7 +15,6 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 enum AppEvent {
-    Key(KeyEvent),
     FileChanged,
     Tick,
 }
@@ -57,14 +57,18 @@ pub fn run_watch(cli: &Cli) -> Result<()> {
     let _debouncer = setup_watcher(watch_path, fs_tx)?;
 
     let tick_tx = tx.clone();
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(Duration::from_secs(5));
-            if tick_tx.send(AppEvent::Tick).is_err() {
-                break;
-            }
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(5));
+        if tick_tx.send(AppEvent::Tick).is_err() {
+            break;
         }
     });
+
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        ratatui::restore();
+        prev_hook(info);
+    }));
 
     let mut terminal = ratatui::init();
     let result = run_event_loop(&mut terminal, &mut state, &rx, vcs.as_ref(), &merge_base, &head_rev, cli);
@@ -113,13 +117,15 @@ fn run_event_loop(
         }
 
         if state.needs_redraw {
-            let diffs = if let Some(pattern) = &state.filter {
-                filter_file_diffs(state.file_diffs.clone(), pattern)
+            let filtered;
+            let diffs: &[FileDiff] = if let Some(pattern) = &state.filter {
+                filtered = filter_file_diffs(state.file_diffs.clone(), pattern);
+                &filtered
             } else {
-                state.file_diffs.clone()
+                &state.file_diffs
             };
             terminal.draw(|frame| {
-                render::render(frame, &diffs, state.scroll, state.changed_only);
+                render::render(frame, diffs, state.scroll, state.changed_only);
             })?;
             state.needs_redraw = false;
         }
@@ -131,12 +137,9 @@ fn run_event_loop(
         }
 
         match rx.try_recv() {
-            Ok(AppEvent::FileChanged) | Ok(AppEvent::Tick) => {
+            Ok(AppEvent::FileChanged | AppEvent::Tick) => {
                 state.file_diffs = compute_diffs(vcs, merge_base, head_rev, cli)?;
                 state.needs_redraw = true;
-            }
-            Ok(AppEvent::Key(key)) => {
-                handle_key(state, key);
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => break,
@@ -190,38 +193,12 @@ fn compute_diffs(vcs: &dyn vcs::Vcs, merge_base: &str, head_rev: &str, cli: &Cli
         .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
         .collect();
 
-    let mut file_diffs = Vec::new();
+    let source = VcsSource {
+        vcs,
+        files: test_files,
+        merge_base: merge_base.to_string(),
+        head_rev: head_rev.to_string(),
+    };
 
-    for path in &test_files {
-        let frameworks = parse::registry::frameworks_for_file(path);
-        let framework = if let Some(name) = &cli.framework {
-            frameworks.iter().find(|f| f.name == *name).copied()
-        } else {
-            frameworks.first().copied()
-        };
-
-        let Some(framework) = framework else { continue };
-
-        let base_source = vcs.file_at_revision(path, merge_base).ok();
-        let head_source = vcs.file_at_revision(path, head_rev).ok();
-
-        let rel_path = path.to_string_lossy();
-        let base_tree = base_source
-            .as_deref()
-            .and_then(|s| parse::engine::parse_file(s, &rel_path, framework));
-        let head_tree = head_source
-            .as_deref()
-            .and_then(|s| parse::engine::parse_file(s, &rel_path, framework));
-
-        let base_nodes = base_tree.map(|t| t.root).unwrap_or_default();
-        let head_nodes = head_tree.map(|t| t.root).unwrap_or_default();
-
-        let nodes = diff::diff_spec_nodes(&base_nodes, &head_nodes);
-        if !nodes.is_empty() {
-            let display_path = parse::registry::normalize_file_path(&rel_path, framework);
-            file_diffs.push(FileDiff { path: display_path, nodes });
-        }
-    }
-
-    Ok(file_diffs)
+    pipeline::diff_files(&source, cli)
 }

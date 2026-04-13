@@ -1,6 +1,6 @@
 [package]
 name = "spec-diff"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -9,7 +9,7 @@ repository = "https://github.com/michaeldhopkins/spec-diff"
 homepage = "https://github.com/michaeldhopkins/spec-diff"
 categories = ["command-line-utilities", "development-tools::testing"]
 keywords = ["test", "diff", "tree-sitter", "tui"]
-include = ["src/**", "frameworks/**", "build.rs", "LICENSE*", "README.md"]
+include = ["src/**", "frameworks/**", "examples/**", "build.rs", "LICENSE*", "README.md", "Cargo.lock"]
 
 [[bin]]
 name = "spec-diff"
