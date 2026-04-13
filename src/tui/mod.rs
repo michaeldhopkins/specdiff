@@ -31,7 +31,7 @@ struct AppState {
 
 pub fn run_watch(cli: &Cli) -> Result<()> {
     let cwd = std::env::current_dir().context("cannot determine working directory")?;
-    let vcs = crate::detect_vcs(&cwd)?;
+    let vcs = crate::vcs::detect(&cwd)?;
 
     let base_rev = cli.base.clone().unwrap_or_else(|| "main".to_string());
     let head_rev = cli.head.clone().unwrap_or_else(|| vcs.default_head_rev().to_string());

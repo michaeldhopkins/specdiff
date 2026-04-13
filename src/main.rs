@@ -1,15 +1,12 @@
-#![allow(dead_code)]
-
-mod cli;
-mod diff;
-mod output;
-mod parse;
-mod tui;
-mod vcs;
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use diff::types::FileDiff;
+use spec_diff::cli;
+use spec_diff::diff;
+use spec_diff::diff::types::FileDiff;
+use spec_diff::output;
+use spec_diff::parse;
+use spec_diff::tui;
+use spec_diff::vcs;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
@@ -28,15 +25,6 @@ fn main() -> Result<()> {
     }
 }
 
-pub fn detect_vcs(start: &Path) -> Result<Box<dyn vcs::Vcs>> {
-    if start.join(".jj").exists() {
-        let jj = vcs::jj::JjVcs::open(start)?;
-        return Ok(Box::new(jj));
-    }
-
-    let git = vcs::git::GitVcs::open(start)?;
-    Ok(Box::new(git))
-}
 
 trait FileSource {
     fn list_files(&self) -> Result<Vec<String>>;
@@ -131,7 +119,7 @@ fn diff_files(source: &dyn FileSource, cli: &cli::Cli) -> Result<Vec<FileDiff>> 
 
 fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
     let cwd = std::env::current_dir().context("cannot determine working directory")?;
-    let vcs = detect_vcs(&cwd)?;
+    let vcs = vcs::detect(&cwd)?;
 
     let branch = vcs.current_branch()?;
     let base_rev = cli.base.clone().unwrap_or_else(|| "main".to_string());
