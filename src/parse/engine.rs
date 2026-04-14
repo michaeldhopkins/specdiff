@@ -154,22 +154,23 @@ fn try_match_dsl_node(
     let method_name = extract_method_name(node, source)?;
 
     for group_def in &framework.group {
-        if group_def.ast_type == node.kind() && group_def.method_names.contains(&method_name) {
-            if let Some(name) = extract_name(node, source, &group_def.name_source, group_def.name_source_type.as_deref()) {
-                let block_node = find_block(node);
-                let children = if let Some(block) = block_node {
-                    parse_children_with_shared(block, source, framework, shared)
-                } else {
-                    vec![]
-                };
-                return Some(SpecNode {
-                    name,
-                    kind: SpecKind::Group,
-                    children,
-                    line: node.start_position().row + 1,
-                    parameterized: None,
-                });
-            }
+        if group_def.ast_type == node.kind()
+            && group_def.method_names.contains(&method_name)
+            && let Some(name) = extract_name(node, source, &group_def.name_source, group_def.name_source_type.as_deref())
+        {
+            let block_node = find_block(node);
+            let children = if let Some(block) = block_node {
+                parse_children_with_shared(block, source, framework, shared)
+            } else {
+                vec![]
+            };
+            return Some(SpecNode {
+                name,
+                kind: SpecKind::Group,
+                children,
+                line: node.start_position().row + 1,
+                parameterized: None,
+            });
         }
     }
 

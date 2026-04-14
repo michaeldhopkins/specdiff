@@ -30,7 +30,7 @@ fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
     let cwd = std::env::current_dir().context("cannot determine working directory")?;
     let vcs = vcs::detect(&cwd)?;
 
-    let branch = vcs.current_branch()?;
+    let branch = vcs.current_branch()?.unwrap_or_else(|| "(detached)".to_string());
     let base_rev = cli.base.clone().unwrap_or_else(|| "main".to_string());
     let head_rev = cli.head.clone().unwrap_or_else(|| vcs.default_head_rev().to_string());
 

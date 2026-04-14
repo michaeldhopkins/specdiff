@@ -130,10 +130,10 @@ fn run_event_loop(
             state.needs_redraw = false;
         }
 
-        if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                handle_key(state, key);
-            }
+        if event::poll(Duration::from_millis(50))?
+            && let Event::Key(key) = event::read()?
+        {
+            handle_key(state, key);
         }
 
         match rx.try_recv() {

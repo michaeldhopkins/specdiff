@@ -158,10 +158,10 @@ fn build_shared_registry(
     let mut framework_by_name: std::collections::HashMap<&str, &parse::registry::FrameworkDef> = std::collections::HashMap::new();
 
     for fw in parse::registry::all_frameworks() {
-        if let Some(name) = &cli.framework {
-            if fw.name != *name {
-                continue;
-            }
+        if let Some(name) = &cli.framework
+            && fw.name != *name
+        {
+            continue;
         }
 
         let shared_def = match &fw.shared {

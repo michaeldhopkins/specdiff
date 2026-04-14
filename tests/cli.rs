@@ -38,7 +38,7 @@ fn cli_no_args_in_non_repo_errors() {
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("no git repository"));
+        .stderr(predicate::str::contains("not a git or jj repository"));
 }
 
 #[test]

@@ -91,15 +91,12 @@ impl Vcs for GitVcs {
         Ok(base.to_string())
     }
 
-    fn current_branch(&self) -> Result<String> {
+    fn current_branch(&self) -> Result<Option<String>> {
         let head = self.repo.head().context("HEAD is unborn")?;
-        if let Some(name) = head.shorthand() {
-            Ok(name.to_string())
-        } else {
-            Ok(head.target()
-                .map(|oid| oid.to_string())
-                .unwrap_or_else(|| "HEAD".to_string()))
+        if head.is_branch() {
+            return Ok(head.shorthand().map(|n| n.to_string()));
         }
+        Ok(None)
     }
 
     fn files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>> {
@@ -235,7 +232,7 @@ mod tests {
     fn git_current_branch() {
         let (_dir, vcs) = create_test_repo();
         let branch = vcs.current_branch().expect("current_branch");
-        assert_eq!(branch, "feature");
+        assert_eq!(branch.as_deref(), Some("feature"));
     }
 
     #[test]

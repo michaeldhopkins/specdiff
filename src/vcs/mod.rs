@@ -5,20 +5,19 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 pub fn detect(start: &Path) -> Result<Box<dyn Vcs>> {
-    if start.join(".jj").exists() {
-        let jj = jj::JjVcs::open(start)?;
-        return Ok(Box::new(jj));
+    let (backend, root) = vcs_runner::detect_vcs(start)?;
+    if backend.is_jj() {
+        Ok(Box::new(jj::JjVcs::new(root)))
+    } else {
+        Ok(Box::new(git::GitVcs::open(&root)?))
     }
-
-    let git = git::GitVcs::open(start)?;
-    Ok(Box::new(git))
 }
 
 pub trait Vcs {
     fn changed_files(&self, base: &str, head: &str) -> Result<Vec<PathBuf>>;
     fn file_at_revision(&self, path: &Path, rev: &str) -> Result<String>;
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
-    fn current_branch(&self) -> Result<String>;
+    fn current_branch(&self) -> Result<Option<String>>;
     fn files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>>;
     fn default_head_rev(&self) -> &str;
 }
@@ -56,8 +55,8 @@ impl Vcs for StubVcs {
         Ok(String::from("base"))
     }
 
-    fn current_branch(&self) -> Result<String> {
-        Ok(self.branch.clone())
+    fn current_branch(&self) -> Result<Option<String>> {
+        Ok(Some(self.branch.clone()))
     }
 
     fn files_matching(&self, _pattern: &str) -> Result<Vec<PathBuf>> {

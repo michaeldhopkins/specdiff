@@ -66,11 +66,11 @@ fn scan_node(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "call" || child.kind() == "call_expression" {
-            if let Some((name, specs)) = try_match_definition(child, source, framework, shared) {
-                registry.register(name, specs);
-                continue;
-            }
+        if (child.kind() == "call" || child.kind() == "call_expression")
+            && let Some((name, specs)) = try_match_definition(child, source, framework, shared)
+        {
+            registry.register(name, specs);
+            continue;
         }
         scan_node(child, source, framework, shared, registry);
     }

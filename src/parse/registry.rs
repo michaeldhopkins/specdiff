@@ -302,10 +302,8 @@ pub fn normalize_file_path(path: &str, framework: &FrameworkDef) -> String {
         }
     }
 
-    if pg.strip_extension {
-        if let Some(dot) = result.rfind('.') {
-            result.truncate(dot);
-        }
+    if pg.strip_extension && let Some(dot) = result.rfind('.') {
+        result.truncate(dot);
     }
 
     loop {
