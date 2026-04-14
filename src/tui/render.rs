@@ -1,4 +1,4 @@
-use crate::diff::types::{DiffKind, DiffNode, FileDiff};
+use crate::diff::types::{DiffKind, DiffNode, FileDiff, Stats};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -15,7 +15,7 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
     ])
     .split(area);
 
-    let stats = count_stats(file_diffs);
+    let stats = Stats::from_file_diffs(file_diffs);
     let header_spans = vec![
         Span::styled("spec-diff", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw("  "),
@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
 
     let mut lines = Vec::new();
     for file_diff in file_diffs {
-        let file_has_changes = file_diff.nodes.iter().any(has_changes);
+        let file_has_changes = file_diff.nodes.iter().any(DiffNode::has_changes);
         if changed_only && !file_has_changes {
             continue;
         }
@@ -70,7 +70,7 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
 }
 
 fn collect_lines(node: &DiffNode, lines: &mut Vec<Line<'_>>, depth: usize, changed_only: bool) {
-    if changed_only && node.kind == DiffKind::Unchanged && !has_changes(node) {
+    if changed_only && node.kind == DiffKind::Unchanged && !node.has_changes() {
         return;
     }
 
@@ -101,36 +101,3 @@ fn collect_lines(node: &DiffNode, lines: &mut Vec<Line<'_>>, depth: usize, chang
     }
 }
 
-fn has_changes(node: &DiffNode) -> bool {
-    if node.kind != DiffKind::Unchanged {
-        return true;
-    }
-    node.children.iter().any(has_changes)
-}
-
-struct Stats {
-    added: usize,
-    removed: usize,
-    renamed: usize,
-}
-
-fn count_stats(file_diffs: &[FileDiff]) -> Stats {
-    let mut stats = Stats { added: 0, removed: 0, renamed: 0 };
-    for fd in file_diffs {
-        count_leaf_nodes(&fd.nodes, &mut stats);
-    }
-    stats
-}
-
-fn count_leaf_nodes(nodes: &[DiffNode], stats: &mut Stats) {
-    for node in nodes {
-        let is_leaf = node.children.is_empty();
-        match node.kind {
-            DiffKind::Added if is_leaf => stats.added += 1,
-            DiffKind::Removed if is_leaf => stats.removed += 1,
-            DiffKind::Renamed => stats.renamed += 1,
-            _ => {}
-        }
-        count_leaf_nodes(&node.children, stats);
-    }
-}

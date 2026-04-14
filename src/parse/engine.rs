@@ -79,7 +79,7 @@ fn try_match_node(
     if let Some(result) = try_match_dsl_node(node, source, framework, shared) {
         return Some(result);
     }
-    if let Some(result) = try_match_marker_node(node, source, framework) {
+    if let Some(result) = try_match_marker_node(node, source, framework, shared) {
         return Some(result);
     }
     None
@@ -304,16 +304,17 @@ fn try_match_marker_node(
     node: Node,
     source: &str,
     framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
 ) -> Option<SpecNode> {
     for marker in &framework.marker {
         match marker.marker_type.as_str() {
             "attribute" => {
-                if let Some(result) = try_match_attribute_marker(node, source, marker, framework) {
+                if let Some(result) = try_match_attribute_marker(node, source, marker, framework, shared) {
                     return Some(result);
                 }
             }
             "name_pattern" => {
-                if let Some(result) = try_match_name_pattern_marker(node, source, marker, framework) {
+                if let Some(result) = try_match_name_pattern_marker(node, source, marker, framework, shared) {
                     return Some(result);
                 }
             }
@@ -328,6 +329,7 @@ fn try_match_attribute_marker(
     source: &str,
     marker: &crate::parse::registry::MarkerDef,
     framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
 ) -> Option<SpecNode> {
     let target_kind = match marker.applies_to.as_str() {
         "function" => "function_item",
@@ -360,7 +362,7 @@ fn try_match_attribute_marker(
         }),
         "group" => {
             let body = node.child_by_field_name("body")?;
-            let children = parse_children(body, source, framework);
+            let children = parse_children_with_shared(body, source, framework, shared);
             Some(SpecNode {
                 name: normalized,
                 kind: SpecKind::Group,
@@ -428,6 +430,7 @@ fn try_match_name_pattern_marker(
     source: &str,
     marker: &crate::parse::registry::MarkerDef,
     framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
 ) -> Option<SpecNode> {
     let target_kind = match marker.applies_to.as_str() {
         "function" | "method" => match framework.language.as_str() {
@@ -500,7 +503,7 @@ fn try_match_name_pattern_marker(
                     node.children(&mut c).find(|n| n.kind() == "body_statement" || n.kind() == "block")
                 });
             let children = if let Some(body) = body_node {
-                parse_children(body, source, framework)
+                parse_children_with_shared(body, source, framework, shared)
             } else {
                 vec![]
             };

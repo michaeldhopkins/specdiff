@@ -154,7 +154,8 @@ fn build_shared_registry(
 ) -> SharedExampleRegistry {
     let mut registry = SharedExampleRegistry::default();
 
-    let mut scan_paths: Vec<(String, &parse::registry::FrameworkDef)> = Vec::new();
+    let mut scan_paths: std::collections::BTreeSet<(String, &str)> = std::collections::BTreeSet::new();
+    let mut framework_by_name: std::collections::HashMap<&str, &parse::registry::FrameworkDef> = std::collections::HashMap::new();
 
     for fw in parse::registry::all_frameworks() {
         if let Some(name) = &cli.framework {
@@ -168,13 +169,15 @@ fn build_shared_registry(
             _ => continue,
         };
 
+        framework_by_name.insert(fw.name.as_str(), fw);
+
         for rel_path in all_paths {
             if shared_def.scan_spec_files_for_definitions
                 && parse::registry::frameworks_for_file(Path::new(rel_path))
                     .iter()
                     .any(|f| f.name == fw.name)
             {
-                scan_paths.push((rel_path.clone(), fw));
+                scan_paths.insert((rel_path.clone(), fw.name.as_str()));
             }
         }
 
@@ -182,19 +185,20 @@ fn build_shared_registry(
             if let Ok(pat) = glob::Pattern::new(glob_pattern) {
                 for rel_path in all_paths {
                     if pat.matches(rel_path) {
-                        scan_paths.push((rel_path.clone(), fw));
+                        scan_paths.insert((rel_path.clone(), fw.name.as_str()));
                     }
                 }
                 if let Ok(extra_paths) = source.list_shared_files(glob_pattern) {
                     for p in extra_paths {
-                        scan_paths.push((p, fw));
+                        scan_paths.insert((p, fw.name.as_str()));
                     }
                 }
             }
         }
     }
 
-    for (rel_path, fw) in &scan_paths {
+    for (rel_path, fw_name) in &scan_paths {
+        let Some(fw) = framework_by_name.get(fw_name) else { continue };
         if let Some(content) = read_fn(source, rel_path) {
             parse::shared::scan_for_definitions(&content, fw, &mut registry);
         }

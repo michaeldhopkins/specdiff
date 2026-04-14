@@ -7,6 +7,7 @@ use spec_diff::parse;
 use spec_diff::pipeline::{self, DirectorySource, VcsSource};
 use spec_diff::tui;
 use spec_diff::vcs;
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
@@ -70,10 +71,10 @@ fn run_directory_diff(base_dir: &str, head_dir: &str, cli: &cli::Cli) -> Result<
 }
 
 fn render_output(file_diffs: &[diff::types::FileDiff], cli: &cli::Cli) -> Result<()> {
-    let file_diffs = if let Some(pattern) = &cli.filter {
-        diff::filter_file_diffs(file_diffs.to_vec(), pattern)
+    let file_diffs: Cow<'_, [diff::types::FileDiff]> = if let Some(pattern) = &cli.filter {
+        Cow::Owned(diff::filter_file_diffs(file_diffs.to_vec(), pattern))
     } else {
-        file_diffs.to_vec()
+        Cow::Borrowed(file_diffs)
     };
 
     let output_str = match cli.format {

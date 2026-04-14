@@ -137,6 +137,40 @@ fn cli_base_dir_without_head_dir_errors() {
 }
 
 #[test]
+fn cli_shared_example_resolution() {
+    let Some(fixtures) = fixtures_dir() else {
+        eprintln!("skipping: specdiff-tests not found");
+        return;
+    };
+    let base = fixtures.join("rspec/base");
+    let head = fixtures.join("rspec/head");
+
+    let output = Command::cargo_bin("spec-diff")
+        .expect("binary")
+        .args([
+            "--base-dir", base.to_str().expect("utf8"),
+            "--head-dir", head.to_str().expect("utf8"),
+            "--no-color",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        stdout.contains("behaves like a timestamped model"),
+        "should resolve it_behaves_like into nested group, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("has created_at"),
+        "should inline shared example specs, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("has updated_at"),
+        "should inline second shared example spec"
+    );
+}
+
+#[test]
 fn cli_filter_flag() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");

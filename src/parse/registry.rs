@@ -308,9 +308,16 @@ pub fn normalize_file_path(path: &str, framework: &FrameworkDef) -> String {
         }
     }
 
-    for suffix in &pg.strip_suffixes {
-        if let Some(stripped) = result.strip_suffix(suffix.as_str()) {
-            result = stripped.to_string();
+    loop {
+        let mut changed = false;
+        for suffix in &pg.strip_suffixes {
+            if let Some(stripped) = result.strip_suffix(suffix.as_str()) {
+                result = stripped.to_string();
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
             break;
         }
     }
@@ -427,5 +434,11 @@ mod tests {
     fn normalize_minitest_path() {
         let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
         assert_eq!(normalize_file_path("test/models/user_test.rb", minitest), "models::user");
+    }
+
+    #[test]
+    fn normalize_double_suffixed_jest_path() {
+        let jest = all_frameworks().iter().find(|f| f.name == "jest").expect("jest");
+        assert_eq!(normalize_file_path("__tests__/user.test.spec.js", jest), "user");
     }
 }

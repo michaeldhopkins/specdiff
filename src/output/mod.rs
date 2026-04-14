@@ -1,4 +1,4 @@
-use crate::diff::types::{DiffKind, DiffNode, FileDiff};
+use crate::diff::types::{DiffKind, DiffNode, FileDiff, Stats};
 use std::fmt::Write;
 use std::io::IsTerminal;
 
@@ -20,8 +20,8 @@ pub fn format_tree(file_diffs: &[FileDiff], changed_only: bool, color: bool) -> 
         && std::env::var_os("NO_COLOR").is_none();
     let mut output = String::new();
 
-    let stats = count_stats(file_diffs);
-    if stats.added > 0 || stats.removed > 0 || stats.renamed > 0 || stats.modified > 0 {
+    let stats = Stats::from_file_diffs(file_diffs);
+    if !stats.is_empty() {
         if use_color {
             let _ = write!(output, "{BOLD}");
         }
@@ -58,7 +58,7 @@ pub fn format_tree(file_diffs: &[FileDiff], changed_only: bool, color: bool) -> 
     }
 
     for file_diff in file_diffs {
-        let file_has_changes = file_diff.nodes.iter().any(has_changes);
+        let file_has_changes = file_diff.nodes.iter().any(DiffNode::has_changes);
         if changed_only && !file_has_changes {
             continue;
         }
@@ -85,36 +85,8 @@ pub fn format_compact(file_diffs: &[FileDiff]) -> String {
     output
 }
 
-struct Stats {
-    added: usize,
-    removed: usize,
-    renamed: usize,
-    modified: usize,
-}
-
-fn count_stats(file_diffs: &[FileDiff]) -> Stats {
-    let mut stats = Stats { added: 0, removed: 0, renamed: 0, modified: 0 };
-    for fd in file_diffs {
-        count_nodes(&fd.nodes, &mut stats);
-    }
-    stats
-}
-
-fn count_nodes(nodes: &[DiffNode], stats: &mut Stats) {
-    for node in nodes {
-        let is_leaf = node.children.is_empty();
-        match node.kind {
-            DiffKind::Added if is_leaf => stats.added += 1,
-            DiffKind::Removed if is_leaf => stats.removed += 1,
-            DiffKind::Renamed => stats.renamed += 1,
-            DiffKind::Added | DiffKind::Modified | DiffKind::Unchanged | DiffKind::Removed => {}
-        }
-        count_nodes(&node.children, stats);
-    }
-}
-
 fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_only: bool, color: bool) {
-    if changed_only && node.kind == DiffKind::Unchanged && !has_changes(node) {
+    if changed_only && node.kind == DiffKind::Unchanged && !node.has_changes() {
         return;
     }
 
@@ -155,16 +127,9 @@ fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_
     }
 }
 
-fn has_changes(node: &DiffNode) -> bool {
-    if node.kind != DiffKind::Unchanged {
-        return true;
-    }
-    node.children.iter().any(has_changes)
-}
-
 fn collect_compact_lines(nodes: &[DiffNode], path: &[&str], output: &mut String) {
     for node in nodes {
-        if node.kind == DiffKind::Unchanged && !has_changes(node) {
+        if node.kind == DiffKind::Unchanged && !node.has_changes() {
             continue;
         }
 
