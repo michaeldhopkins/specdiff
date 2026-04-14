@@ -1,8 +1,18 @@
 use crate::parse::registry::FrameworkDef;
+use crate::parse::shared::SharedExampleRegistry;
 use crate::parse::{SpecKind, SpecNode, SpecTree};
 use tree_sitter::{Node, Parser};
 
 pub fn parse_file(source: &str, path: &str, framework: &FrameworkDef) -> Option<SpecTree> {
+    parse_file_with_shared(source, path, framework, None)
+}
+
+pub fn parse_file_with_shared(
+    source: &str,
+    path: &str,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Option<SpecTree> {
     let mut parser = Parser::new();
     let language = language_for_framework(framework)?;
     parser.set_language(&language).ok()?;
@@ -10,7 +20,7 @@ pub fn parse_file(source: &str, path: &str, framework: &FrameworkDef) -> Option<
     let tree = parser.parse(source, None)?;
     let root = tree.root_node();
 
-    let children = parse_children(root, source, framework);
+    let children = parse_children_with_shared(root, source, framework, shared);
 
     if children.is_empty() {
         return None;
@@ -23,7 +33,7 @@ pub fn parse_file(source: &str, path: &str, framework: &FrameworkDef) -> Option<
     })
 }
 
-fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::Language> {
+pub fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::Language> {
     match framework.language.as_str() {
         "ruby" => Some(tree_sitter_ruby::LANGUAGE.into()),
         "rust" => Some(tree_sitter_rust::LANGUAGE.into()),
@@ -34,23 +44,39 @@ fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::Langu
     }
 }
 
-fn parse_children(node: Node, source: &str, framework: &FrameworkDef) -> Vec<SpecNode> {
+pub fn parse_children(node: Node, source: &str, framework: &FrameworkDef) -> Vec<SpecNode> {
+    parse_children_with_shared(node, source, framework, None)
+}
+
+pub fn parse_children_with_shared(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Vec<SpecNode> {
     let mut results = Vec::new();
     let mut cursor = node.walk();
 
     for child in node.children(&mut cursor) {
-        if let Some(spec_node) = try_match_node(child, source, framework) {
+        if let Some(nodes) = try_match_inclusion(child, source, framework, shared) {
+            results.extend(nodes);
+        } else if let Some(spec_node) = try_match_node(child, source, framework, shared) {
             results.push(spec_node);
         } else {
-            results.extend(parse_children(child, source, framework));
+            results.extend(parse_children_with_shared(child, source, framework, shared));
         }
     }
 
     results
 }
 
-fn try_match_node(node: Node, source: &str, framework: &FrameworkDef) -> Option<SpecNode> {
-    if let Some(result) = try_match_dsl_node(node, source, framework) {
+fn try_match_node(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Option<SpecNode> {
+    if let Some(result) = try_match_dsl_node(node, source, framework, shared) {
         return Some(result);
     }
     if let Some(result) = try_match_marker_node(node, source, framework) {
@@ -59,10 +85,67 @@ fn try_match_node(node: Node, source: &str, framework: &FrameworkDef) -> Option<
     None
 }
 
+fn try_match_inclusion(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Option<Vec<SpecNode>> {
+    let shared_def = framework.shared.as_ref()?;
+    let registry = shared?;
+
+    if node.kind() != "call" && node.kind() != "call_expression" {
+        return None;
+    }
+
+    let method_name = extract_method_name(node, source)?;
+
+    for inclusion in &shared_def.inclusion {
+        if inclusion.ast_type != node.kind() {
+            continue;
+        }
+        if !inclusion.method_names.contains(&method_name) {
+            continue;
+        }
+
+        let name = extract_name(
+            node,
+            source,
+            &inclusion.name_source,
+            inclusion.name_source_type.as_deref(),
+        )?;
+
+        let specs = registry.get(&name)?;
+
+        match inclusion.nesting.as_deref() {
+            Some("nested") => {
+                let group_name = inclusion
+                    .nested_name_template
+                    .as_deref()
+                    .unwrap_or("{name}")
+                    .replace("{name}", &name);
+                return Some(vec![SpecNode {
+                    name: group_name,
+                    kind: SpecKind::Group,
+                    children: specs.to_vec(),
+                    line: node.start_position().row + 1,
+                    parameterized: None,
+                }]);
+            }
+            _ => {
+                return Some(specs.to_vec());
+            }
+        }
+    }
+
+    None
+}
+
 fn try_match_dsl_node(
     node: Node,
     source: &str,
     framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
 ) -> Option<SpecNode> {
     if node.kind() != "call" && node.kind() != "call_expression" {
         return None;
@@ -75,7 +158,7 @@ fn try_match_dsl_node(
             if let Some(name) = extract_name(node, source, &group_def.name_source, group_def.name_source_type.as_deref()) {
                 let block_node = find_block(node);
                 let children = if let Some(block) = block_node {
-                    parse_children(block, source, framework)
+                    parse_children_with_shared(block, source, framework, shared)
                 } else {
                     vec![]
                 };
@@ -115,7 +198,7 @@ fn try_match_dsl_node(
     None
 }
 
-fn extract_method_name(node: Node, source: &str) -> Option<String> {
+pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
     match node.kind() {
         "call" => {
             let method_node = node.child_by_field_name("method")?;
@@ -129,7 +212,7 @@ fn extract_method_name(node: Node, source: &str) -> Option<String> {
     }
 }
 
-fn extract_name(
+pub fn extract_name(
     node: Node,
     source: &str,
     name_source: &str,
@@ -164,7 +247,7 @@ fn find_arguments(node: Node) -> Option<Node> {
     None
 }
 
-fn find_block(node: Node) -> Option<Node> {
+pub fn find_block(node: Node) -> Option<Node> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
