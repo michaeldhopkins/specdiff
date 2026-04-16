@@ -22,6 +22,7 @@ pub fn diff_spec_nodes(base: &[SpecNode], head: &[SpecNode]) -> Vec<DiffNode> {
                 name: head_node.name.clone(),
                 kind: if has_changes { DiffKind::Modified } else { DiffKind::Unchanged },
                 old_name: None,
+                param_cases: head_node.parameterized.as_ref().map(|p| p.case_count),
                 children: child_diff,
             });
         } else if let Some((idx, head_node)) = find_rename_candidate(base_node, head, &matched_head) {
@@ -35,6 +36,7 @@ pub fn diff_spec_nodes(base: &[SpecNode], head: &[SpecNode]) -> Vec<DiffNode> {
                 name: head_node.name.clone(),
                 kind: DiffKind::Renamed,
                 old_name: Some(base_node.name.clone()),
+                param_cases: head_node.parameterized.as_ref().map(|p| p.case_count),
                 children: child_diff,
             });
         } else {
@@ -42,6 +44,7 @@ pub fn diff_spec_nodes(base: &[SpecNode], head: &[SpecNode]) -> Vec<DiffNode> {
                 name: base_node.name.clone(),
                 kind: DiffKind::Removed,
                 old_name: None,
+                param_cases: base_node.parameterized.as_ref().map(|p| p.case_count),
                 children: vec![],
             });
         }
@@ -53,6 +56,7 @@ pub fn diff_spec_nodes(base: &[SpecNode], head: &[SpecNode]) -> Vec<DiffNode> {
                 name: head_node.name.clone(),
                 kind: DiffKind::Added,
                 old_name: None,
+                param_cases: head_node.parameterized.as_ref().map(|p| p.case_count),
                 children: if head_node.kind == SpecKind::Group {
                     head_node.children.iter().map(make_added).collect()
                 } else {
@@ -165,6 +169,7 @@ fn make_added(node: &SpecNode) -> DiffNode {
         name: node.name.clone(),
         kind: DiffKind::Added,
         old_name: None,
+        param_cases: node.parameterized.as_ref().map(|p| p.case_count),
         children: node.children.iter().map(make_added).collect(),
     }
 }
@@ -377,14 +382,14 @@ mod tests {
             FileDiff {
                 path: "models::user".into(),
                 nodes: vec![
-                    DiffNode { name: "validates email".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
-                    DiffNode { name: "has many posts".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                    DiffNode { name: "validates email".into(), kind: DiffKind::Added, old_name: None, param_cases: None, children: vec![] },
+                    DiffNode { name: "has many posts".into(), kind: DiffKind::Added, old_name: None, param_cases: None, children: vec![] },
                 ],
             },
             FileDiff {
                 path: "models::post".into(),
                 nodes: vec![
-                    DiffNode { name: "belongs to user".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                    DiffNode { name: "belongs to user".into(), kind: DiffKind::Added, old_name: None, param_cases: None, children: vec![] },
                 ],
             },
         ];
@@ -402,13 +407,13 @@ mod tests {
             FileDiff {
                 path: "models::user".into(),
                 nodes: vec![
-                    DiffNode { name: "test".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                    DiffNode { name: "test".into(), kind: DiffKind::Added, old_name: None, param_cases: None, children: vec![] },
                 ],
             },
             FileDiff {
                 path: "models::post".into(),
                 nodes: vec![
-                    DiffNode { name: "test".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                    DiffNode { name: "test".into(), kind: DiffKind::Added, old_name: None, param_cases: None, children: vec![] },
                 ],
             },
         ];
@@ -423,7 +428,7 @@ mod tests {
         let diffs = vec![FileDiff {
             path: "models::user".into(),
             nodes: vec![
-                DiffNode { name: "Validates Email".into(), kind: DiffKind::Added, old_name: None, children: vec![] },
+                DiffNode { name: "Validates Email".into(), kind: DiffKind::Added, old_name: None, param_cases: None, children: vec![] },
             ],
         }];
 

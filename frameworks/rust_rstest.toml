@@ -15,4 +15,9 @@ creates = "spec"
 detection = "attribute"
 attribute_name = "case"
 case_count_type = "attribute_count"
+
+[[framework.parameterized]]
+detection = "attribute"
+attribute_name = "case"
+case_count_type = "attribute_count"
 label_source = "first_literal_in_attribute"

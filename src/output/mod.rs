@@ -109,16 +109,21 @@ fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_
         }
     };
 
+    let param_suffix = node
+        .param_cases
+        .map(|n| format!(" [{n} cases]"))
+        .unwrap_or_default();
+
     match node.kind {
         DiffKind::Renamed => {
             if let Some(old) = &node.old_name {
-                let _ = writeln!(output, "{color_start}{prefix} {indent}{old} -> {}{color_end}", node.name);
+                let _ = writeln!(output, "{color_start}{prefix} {indent}{old} -> {}{param_suffix}{color_end}", node.name);
             } else {
-                let _ = writeln!(output, "{color_start}{prefix} {indent}{}{color_end}", node.name);
+                let _ = writeln!(output, "{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name);
             }
         }
         _ => {
-            let _ = writeln!(output, "{color_start}{prefix} {indent}{}{color_end}", node.name);
+            let _ = writeln!(output, "{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name);
         }
     }
 
@@ -167,17 +172,20 @@ mod tests {
                     name: "validations".into(),
                     kind: DiffKind::Modified,
                     old_name: None,
+                    param_cases: None,
                     children: vec![
                         DiffNode {
                             name: "validates email".into(),
                             kind: DiffKind::Unchanged,
                             old_name: None,
+                            param_cases: None,
                             children: vec![],
                         },
                         DiffNode {
                             name: "validates uniqueness".into(),
                             kind: DiffKind::Added,
                             old_name: None,
+                            param_cases: None,
                             children: vec![],
                         },
                     ],
@@ -186,10 +194,12 @@ mod tests {
                     name: "associations".into(),
                     kind: DiffKind::Unchanged,
                     old_name: None,
+                    param_cases: None,
                     children: vec![DiffNode {
                         name: "has many posts".into(),
                         kind: DiffKind::Unchanged,
                         old_name: None,
+                        param_cases: None,
                         children: vec![],
                     }],
                 },

@@ -201,7 +201,7 @@ fn try_match_dsl_node(
                     kind: SpecKind::Spec,
                     children: vec![],
                     line: node.start_position().row + 1,
-                    parameterized: None,
+                    parameterized: detect_parameterization(node, source, framework),
                 });
             }
         }
@@ -226,6 +226,13 @@ pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
         }
         "call_expression" => {
             let function_node = node.child_by_field_name("function")?;
+            if function_node.kind() == "call_expression" {
+                return extract_method_name(function_node, source);
+            }
+            if function_node.kind() == "member_expression" {
+                let object = function_node.child_by_field_name("object")?;
+                return node_text(object, source);
+            }
             node_text(function_node, source)
         }
         _ => None,
@@ -385,7 +392,7 @@ fn try_match_attribute_marker(
             kind: SpecKind::Spec,
             children: vec![],
             line: node.start_position().row + 1,
-            parameterized: None,
+            parameterized: detect_parameterization(node, source, framework),
         }),
         "group" => {
             let body = node.child_by_field_name("body")?;
@@ -506,12 +513,14 @@ fn try_match_name_pattern_marker(
             };
 
             if nested.is_empty() {
+                let parameterized = detect_parameterization(node, source, framework)
+                    .or_else(|| detect_table_driven(node, source, framework));
                 Some(SpecNode {
                     name: normalized,
                     kind: SpecKind::Spec,
                     children: vec![],
                     line: node.start_position().row + 1,
-                    parameterized: None,
+                    parameterized,
                 })
             } else {
                 Some(SpecNode {
@@ -610,6 +619,182 @@ fn try_match_nested_call(
         });
     }
 
+    None
+}
+
+fn detect_parameterization(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+) -> Option<crate::parse::ParamInfo> {
+    for param_def in &framework.parameterized {
+        let count = match param_def.detection.as_str() {
+            "attribute" => count_rust_case_attributes(node, source, param_def.attribute_name.as_deref()?),
+            "decorator" => count_python_parametrize_cases(node, source, param_def.decorator_name.as_deref()?),
+            "method_call" => count_jest_each_cases(node, source, &param_def.method_names),
+            _ => None,
+        };
+        if let Some(count) = count
+            && count > 0
+        {
+            return Some(crate::parse::ParamInfo {
+                case_count: count,
+                labels: vec![],
+            });
+        }
+    }
+    None
+}
+
+fn detect_table_driven(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+) -> Option<crate::parse::ParamInfo> {
+    let table = framework.table_driven.as_ref()?;
+    if !table.enabled {
+        return None;
+    }
+    let slice_kind = table.slice_pattern.as_deref()?;
+    let loop_kind = table.loop_pattern.as_deref()?;
+    let run_call = table.run_call.as_deref()?;
+
+    let body = node.child_by_field_name("body")?;
+
+    let mut has_loop_with_run = false;
+    let mut case_count: Option<usize> = None;
+
+    let mut stack = vec![body];
+    while let Some(current) = stack.pop() {
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            if child.kind() == slice_kind
+                && let Some(literal_value) = child
+                    .children(&mut child.walk())
+                    .find(|c| c.kind() == "literal_value")
+            {
+                let mut lc = literal_value.walk();
+                let items = literal_value
+                    .children(&mut lc)
+                    .filter(|c| c.kind() == "literal_element")
+                    .count();
+                if items > 0 && case_count.is_none() {
+                    case_count = Some(items);
+                }
+            }
+
+            if child.kind() == loop_kind && call_contains(child, source, run_call) {
+                has_loop_with_run = true;
+            }
+
+            stack.push(child);
+        }
+    }
+
+    if has_loop_with_run
+        && let Some(count) = case_count
+    {
+        return Some(crate::parse::ParamInfo {
+            case_count: count,
+            labels: vec![],
+        });
+    }
+    None
+}
+
+fn call_contains(node: Node, source: &str, target: &str) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "call_expression"
+            && let Some(func) = child.child_by_field_name("function")
+            && node_text(func, source).as_deref() == Some(target)
+        {
+            return true;
+        }
+        if call_contains(child, source, target) {
+            return true;
+        }
+    }
+    false
+}
+
+fn count_rust_case_attributes(node: Node, source: &str, attribute_name: &str) -> Option<usize> {
+    let mut count = 0;
+    let mut sibling = node.prev_sibling();
+    while let Some(sib) = sibling {
+        if sib.kind() == "attribute_item" {
+            if attribute_matches(sib, source, attribute_name, None) {
+                count += 1;
+            }
+        } else if sib.kind() != "line_comment" && sib.kind() != "block_comment" {
+            break;
+        }
+        sibling = sib.prev_sibling();
+    }
+    if count == 0 { None } else { Some(count) }
+}
+
+fn count_python_parametrize_cases(node: Node, source: &str, decorator_name: &str) -> Option<usize> {
+    let parent = node.parent()?;
+    if parent.kind() != "decorated_definition" {
+        return None;
+    }
+    let mut cursor = parent.walk();
+    for child in parent.children(&mut cursor) {
+        if child.kind() != "decorator" {
+            continue;
+        }
+        let mut dc = child.walk();
+        let call = child.children(&mut dc).find(|c| c.kind() == "call")?;
+        let func = call.child_by_field_name("function")?;
+        if node_text(func, source).as_deref() != Some(decorator_name) {
+            continue;
+        }
+        let args = call.child_by_field_name("arguments")?;
+        let mut ac = args.walk();
+        for arg in args.children(&mut ac) {
+            if arg.kind() == "list" {
+                let mut lc = arg.walk();
+                let items = arg
+                    .children(&mut lc)
+                    .filter(|c| c.is_named() && c.kind() != "comment")
+                    .count();
+                if items > 0 {
+                    return Some(items);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn count_jest_each_cases(node: Node, source: &str, method_names: &[String]) -> Option<usize> {
+    if node.kind() != "call_expression" {
+        return None;
+    }
+    let function_node = node.child_by_field_name("function")?;
+    if function_node.kind() != "call_expression" {
+        return None;
+    }
+    let inner_fn = function_node.child_by_field_name("function")?;
+    let method_text = node_text(inner_fn, source)?;
+    if !method_names.contains(&method_text) {
+        return None;
+    }
+    let args = function_node.child_by_field_name("arguments")?;
+    let mut ac = args.walk();
+    for arg in args.children(&mut ac) {
+        if arg.kind() == "array" {
+            let mut lc = arg.walk();
+            let items = arg
+                .children(&mut lc)
+                .filter(|c| c.is_named())
+                .count();
+            if items > 0 {
+                return Some(items);
+            }
+        }
+    }
     None
 }
 
@@ -1148,6 +1333,77 @@ class TestUser(BaseTest):
         assert!(names.contains(&"shared one"), "inherited test_shared_one should appear, got {names:?}");
         assert!(names.contains(&"shared two"));
         assert!(names.contains(&"own"));
+    }
+
+    #[test]
+    fn parse_rstest_case_count() {
+        let source = r#"
+#[cfg(test)]
+mod tests {
+    #[rstest]
+    #[case(1, 2)]
+    #[case(3, 4)]
+    #[case(5, 6)]
+    fn test_cases(#[case] a: i32, #[case] b: i32) {
+    }
+}
+"#;
+        let tree = parse_file(source, "src/lib.rs", rust_framework()).expect("parsed");
+        let tests = &tree.root[0];
+        let cases = tests.children.iter().find(|n| n.name == "cases").expect("cases");
+        let param = cases.parameterized.as_ref().expect("has parameterization");
+        assert_eq!(param.case_count, 3);
+    }
+
+    #[test]
+    fn parse_pytest_parametrize_count() {
+        let source = r#"
+import pytest
+
+@pytest.mark.parametrize("a,b", [(1, 2), (3, 4), (5, 6), (7, 8)])
+def test_add(a, b):
+    assert a + b > 0
+"#;
+        let tree = parse_file(source, "tests/test_math.py", pytest_framework()).expect("parsed");
+        let add = tree.root.iter().find(|n| n.name == "add").expect("add");
+        let param = add.parameterized.as_ref().expect("has parameterization");
+        assert_eq!(param.case_count, 4);
+    }
+
+    #[test]
+    fn parse_go_table_driven() {
+        let source = r#"package user
+import "testing"
+
+func TestAdd(t *testing.T) {
+    cases := []struct{
+        name string
+        a int
+    }{
+        {"zero", 0},
+        {"one", 1},
+        {"two", 2},
+        {"three", 3},
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {})
+    }
+}
+"#;
+        let tree = parse_file(source, "user_test.go", go_framework()).expect("parsed");
+        let add = tree.root.iter().find(|n| n.name == "Add").expect("Add");
+        let param = add.parameterized.as_ref().expect("table-driven detected");
+        assert_eq!(param.case_count, 4);
+    }
+
+    #[test]
+    fn parse_jest_each_count() {
+        let source = "it.each([[1,2],[3,4],[5,6]])('adds %i + %i', (a,b) => {});\n";
+        let tree = parse_file(source, "user.test.js", jest_framework()).expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+        let each = &tree.root[0];
+        let param = each.parameterized.as_ref().expect("has parameterization");
+        assert_eq!(param.case_count, 3);
     }
 
     #[test]

@@ -83,15 +83,20 @@ fn collect_lines(node: &DiffNode, lines: &mut Vec<Line<'_>>, depth: usize, chang
         DiffKind::Unchanged => ("  ", Style::default().fg(Color::DarkGray)),
     };
 
+    let suffix = node
+        .param_cases
+        .map(|n| format!(" [{n} cases]"))
+        .unwrap_or_default();
+
     let text = match node.kind {
         DiffKind::Renamed => {
             if let Some(old) = &node.old_name {
-                format!("{prefix} {indent}{old} -> {}", node.name)
+                format!("{prefix} {indent}{old} -> {}{suffix}", node.name)
             } else {
-                format!("{prefix} {indent}{}", node.name)
+                format!("{prefix} {indent}{}{suffix}", node.name)
             }
         }
-        _ => format!("{prefix} {indent}{}", node.name),
+        _ => format!("{prefix} {indent}{}{suffix}", node.name),
     };
 
     lines.push(Line::from(Span::styled(text, style)));

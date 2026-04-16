@@ -17,10 +17,21 @@ creates = "spec"
 
 [[framework.marker]]
 marker_type = "attribute"
+marker_name = "rstest"
+applies_to = "function"
+creates = "spec"
+
+[[framework.marker]]
+marker_type = "attribute"
 marker_name = "cfg"
 marker_argument = "test"
 applies_to = "module"
 creates = "group"
+
+[[framework.parameterized]]
+detection = "attribute"
+attribute_name = "case"
+case_count_type = "attribute_count"
 
 [framework.normalization]
 strip_prefixes = ["test_"]
