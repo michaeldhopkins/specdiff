@@ -59,6 +59,9 @@ pub fn parse_children_with_shared(
     let mut cursor = node.walk();
 
     for child in node.children(&mut cursor) {
+        if is_inert_container(child, framework) {
+            continue;
+        }
         if let Some(nodes) = try_match_inclusion(child, source, framework, shared) {
             results.extend(nodes);
         } else if let Some(spec_node) = try_match_node(child, source, framework, shared) {
@@ -69,6 +72,13 @@ pub fn parse_children_with_shared(
     }
 
     results
+}
+
+fn is_inert_container(node: Node, framework: &FrameworkDef) -> bool {
+    matches!(
+        (framework.language.as_str(), node.kind()),
+        ("ruby", "module")
+    )
 }
 
 fn try_match_node(
@@ -313,6 +323,10 @@ fn node_text(node: Node, source: &str) -> Option<String> {
     source.get(node.byte_range()).map(|s| s.to_string())
 }
 
+pub fn node_text_pub(node: Node, source: &str) -> Option<String> {
+    node_text(node, source)
+}
+
 fn try_match_marker_node(
     node: Node,
     source: &str,
@@ -515,11 +529,10 @@ fn try_match_name_pattern_marker(
                     let mut c = node.walk();
                     node.children(&mut c).find(|n| n.kind() == "body_statement" || n.kind() == "block")
                 });
-            let children = if let Some(body) = body_node {
-                parse_children_with_shared(body, source, framework, shared)
-            } else {
-                vec![]
-            };
+            let mut children = inherited_specs(node, source, framework, shared);
+            if let Some(body) = body_node {
+                children.extend(parse_children_with_shared(body, source, framework, shared));
+            }
             Some(SpecNode {
                 name: normalized,
                 kind: SpecKind::Group,
@@ -598,6 +611,78 @@ fn try_match_nested_call(
     }
 
     None
+}
+
+fn inherited_specs(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Vec<SpecNode> {
+    let Some(registry) = shared else { return vec![] };
+
+    match framework.language.as_str() {
+        "python" => python_inherited(node, source, registry),
+        "ruby" => ruby_included(node, source, registry),
+        _ => vec![],
+    }
+}
+
+fn python_inherited(
+    node: Node,
+    source: &str,
+    registry: &SharedExampleRegistry,
+) -> Vec<SpecNode> {
+    let mut specs = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "argument_list" {
+            let mut inner = child.walk();
+            for arg in child.children(&mut inner) {
+                if arg.kind() == "identifier"
+                    && let Some(parent_name) = node_text(arg, source)
+                    && let Some(parent_specs) = registry.get_type(&parent_name)
+                {
+                    specs.extend_from_slice(parent_specs);
+                }
+            }
+        }
+    }
+    specs
+}
+
+fn ruby_included(
+    node: Node,
+    source: &str,
+    registry: &SharedExampleRegistry,
+) -> Vec<SpecNode> {
+    let mut specs = Vec::new();
+    let mut cursor = node.walk();
+    let body = node.children(&mut cursor).find(|c| c.kind() == "body_statement");
+    let Some(body) = body else { return specs };
+
+    let mut body_cursor = body.walk();
+    for child in body.children(&mut body_cursor) {
+        if child.kind() != "call" {
+            continue;
+        }
+        let Some(method) = extract_method_name(child, source) else { continue };
+        if method != "include" && method != "extend" {
+            continue;
+        }
+
+        let Some(args) = find_arguments(child) else { continue };
+        let mut arg_cursor = args.walk();
+        for arg in args.children(&mut arg_cursor) {
+            if (arg.kind() == "constant" || arg.kind() == "scope_resolution")
+                && let Some(name) = node_text(arg, source)
+                && let Some(module_specs) = registry.get_type(&name)
+            {
+                specs.extend_from_slice(module_specs);
+            }
+        }
+    }
+    specs
 }
 
 fn matches_pattern(name: &str, pattern: &str) -> bool {
@@ -1035,5 +1120,68 @@ end
         let tree = tree.expect("parsed fixture");
         let validations = tree.root.iter().find(|n| n.name == "validations").expect("validations");
         assert_eq!(validations.children.len(), 2);
+    }
+
+    #[test]
+    fn pytest_class_inheritance_inlines_parent_methods() {
+        let source = r#"
+class BaseTest:
+    def test_shared_one(self):
+        pass
+
+    def test_shared_two(self):
+        pass
+
+class TestUser(BaseTest):
+    def test_own(self):
+        pass
+"#;
+
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(source, pytest_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(source, "tests/test_user.py", pytest_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+
+        let test_user = tree.root.iter().find(|n| n.name == "User").expect("TestUser -> User");
+        let names: Vec<&str> = test_user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"shared one"), "inherited test_shared_one should appear, got {names:?}");
+        assert!(names.contains(&"shared two"));
+        assert!(names.contains(&"own"));
+    }
+
+    #[test]
+    fn minitest_module_include_inlines_methods() {
+        let source = r#"
+module SharedBehavior
+  def test_shared_one
+    assert true
+  end
+
+  def test_shared_two
+    assert true
+  end
+end
+
+class TestUser < Minitest::Test
+  include SharedBehavior
+
+  def test_own
+    assert true
+  end
+end
+"#;
+
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(source, minitest_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(source, "test/user_test.rb", minitest_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+
+        let test_user = tree.root.iter().find(|n| n.name == "User").expect("TestUser -> User");
+        let names: Vec<&str> = test_user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"shared one"), "included test_shared_one should appear, got {names:?}");
+        assert!(names.contains(&"shared two"));
+        assert!(names.contains(&"own"));
     }
 }

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 #[derive(Debug, Default)]
 pub struct SharedExampleRegistry {
     definitions: HashMap<String, Vec<SpecNode>>,
+    types: HashMap<String, Vec<SpecNode>>,
 }
 
 impl SharedExampleRegistry {
@@ -12,12 +13,20 @@ impl SharedExampleRegistry {
         self.definitions.insert(name, specs);
     }
 
+    pub fn register_type(&mut self, name: String, specs: Vec<SpecNode>) {
+        self.types.insert(name, specs);
+    }
+
     pub fn get(&self, name: &str) -> Option<&[SpecNode]> {
         self.definitions.get(name).map(|v| v.as_slice())
     }
 
+    pub fn get_type(&self, name: &str) -> Option<&[SpecNode]> {
+        self.types.get(name).map(|v| v.as_slice())
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.definitions.is_empty()
+        self.definitions.is_empty() && self.types.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -30,15 +39,6 @@ pub fn scan_for_definitions(
     framework: &FrameworkDef,
     registry: &mut SharedExampleRegistry,
 ) {
-    let shared = match &framework.shared {
-        Some(s) => s,
-        None => return,
-    };
-
-    if shared.definition.is_empty() {
-        return;
-    }
-
     let language = match crate::parse::engine::language_for_framework(framework) {
         Some(l) => l,
         None => return,
@@ -54,7 +54,67 @@ pub fn scan_for_definitions(
         None => return,
     };
 
-    scan_node(tree.root_node(), source, framework, shared, registry);
+    if let Some(shared) = &framework.shared
+        && !shared.definition.is_empty()
+    {
+        scan_node(tree.root_node(), source, framework, shared, registry);
+    }
+
+    scan_types(tree.root_node(), source, framework, registry);
+}
+
+fn scan_types(
+    node: tree_sitter::Node,
+    source: &str,
+    framework: &FrameworkDef,
+    registry: &mut SharedExampleRegistry,
+) {
+    let type_node_kinds: &[&str] = match framework.language.as_str() {
+        "python" => &["class_definition"],
+        "ruby" => &["class", "module"],
+        _ => return,
+    };
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if type_node_kinds.contains(&child.kind())
+            && let Some((name, specs)) = extract_type_definition(child, source, framework)
+        {
+            registry.register_type(name, specs);
+        }
+        scan_types(child, source, framework, registry);
+    }
+}
+
+fn extract_type_definition(
+    node: tree_sitter::Node,
+    source: &str,
+    framework: &FrameworkDef,
+) -> Option<(String, Vec<SpecNode>)> {
+    let name_node = match framework.language.as_str() {
+        "python" => node.child_by_field_name("name")?,
+        "ruby" => {
+            let mut cursor = node.walk();
+            node.children(&mut cursor).find(|c| c.kind() == "constant")?
+        }
+        _ => return None,
+    };
+    let name = crate::parse::engine::node_text_pub(name_node, source)?;
+
+    let body = match framework.language.as_str() {
+        "python" => node.child_by_field_name("body")?,
+        "ruby" => {
+            let mut cursor = node.walk();
+            node.children(&mut cursor).find(|c| c.kind() == "body_statement")?
+        }
+        _ => return None,
+    };
+
+    let specs = crate::parse::engine::parse_children(body, source, framework);
+    if specs.is_empty() {
+        return None;
+    }
+    Some((name, specs))
 }
 
 fn scan_node(

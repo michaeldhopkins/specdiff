@@ -164,33 +164,41 @@ fn build_shared_registry(
             continue;
         }
 
-        let shared_def = match &fw.shared {
-            Some(s) if !s.definition.is_empty() => s,
-            _ => continue,
-        };
+        let has_shared_definitions = fw.shared.as_ref().is_some_and(|s| !s.definition.is_empty());
+        let scans_types = matches!(fw.language.as_str(), "python" | "ruby");
+
+        if !has_shared_definitions && !scans_types {
+            continue;
+        }
 
         framework_by_name.insert(fw.name.as_str(), fw);
 
-        for rel_path in all_paths {
-            if shared_def.scan_spec_files_for_definitions
-                && parse::registry::frameworks_for_file(Path::new(rel_path))
+        let scan_spec_files = has_shared_definitions
+            && fw.shared.as_ref().is_some_and(|s| s.scan_spec_files_for_definitions);
+
+        if scan_spec_files || scans_types {
+            for rel_path in all_paths {
+                if parse::registry::frameworks_for_file(Path::new(rel_path))
                     .iter()
                     .any(|f| f.name == fw.name)
-            {
-                scan_paths.insert((rel_path.clone(), fw.name.as_str()));
+                {
+                    scan_paths.insert((rel_path.clone(), fw.name.as_str()));
+                }
             }
         }
 
-        for glob_pattern in &shared_def.definition_globs {
-            if let Ok(pat) = glob::Pattern::new(glob_pattern) {
-                for rel_path in all_paths {
-                    if pat.matches(rel_path) {
-                        scan_paths.insert((rel_path.clone(), fw.name.as_str()));
+        if let Some(shared_def) = &fw.shared {
+            for glob_pattern in &shared_def.definition_globs {
+                if let Ok(pat) = glob::Pattern::new(glob_pattern) {
+                    for rel_path in all_paths {
+                        if pat.matches(rel_path) {
+                            scan_paths.insert((rel_path.clone(), fw.name.as_str()));
+                        }
                     }
-                }
-                if let Ok(extra_paths) = source.list_shared_files(glob_pattern) {
-                    for p in extra_paths {
-                        scan_paths.insert((p, fw.name.as_str()));
+                    if let Ok(extra_paths) = source.list_shared_files(glob_pattern) {
+                        for p in extra_paths {
+                            scan_paths.insert((p, fw.name.as_str()));
+                        }
                     }
                 }
             }
