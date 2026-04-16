@@ -40,6 +40,7 @@ pub fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::L
         "python" => Some(tree_sitter_python::LANGUAGE.into()),
         "javascript" => Some(tree_sitter_javascript::LANGUAGE.into()),
         "go" => Some(tree_sitter_go::LANGUAGE.into()),
+        "elixir" => Some(tree_sitter_elixir::LANGUAGE.into()),
         _ => None,
     }
 }
@@ -202,8 +203,16 @@ fn try_match_dsl_node(
 pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
     match node.kind() {
         "call" => {
-            let method_node = node.child_by_field_name("method")?;
-            node_text(method_node, source)
+            if let Some(method_node) = node.child_by_field_name("method") {
+                return node_text(method_node, source);
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "identifier" {
+                    return node_text(child, source);
+                }
+            }
+            None
         }
         "call_expression" => {
             let function_node = node.child_by_field_name("function")?;
@@ -284,7 +293,10 @@ fn extract_string_content(node: Node, source: &str) -> Option<String> {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 match child.kind() {
-                    "string_content" | "string_fragment" | "interpreted_string_literal_content" => {
+                    "string_content"
+                    | "string_fragment"
+                    | "interpreted_string_literal_content"
+                    | "quoted_content" => {
                         return node_text(child, source);
                     }
                     _ => {}
@@ -977,5 +989,51 @@ end
         assert_eq!(create.name, "CreateUser");
         assert_eq!(create.kind, SpecKind::Group);
         assert_eq!(create.children.len(), 2, "should find 2 t.Run subtests");
+    }
+
+    fn exunit_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "exunit").expect("exunit")
+    }
+
+    #[test]
+    fn parse_exunit_describe_test() {
+        let source = r#"defmodule UserTest do
+  use ExUnit.Case
+
+  describe "validations" do
+    test "validates email" do
+      assert true
+    end
+
+    test "requires name" do
+      assert true
+    end
+  end
+
+  test "standalone test" do
+    assert true
+  end
+end
+"#;
+        let tree = parse_file(source, "test/user_test.exs", exunit_framework());
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "exunit");
+
+        let validations = tree.root.iter().find(|n| n.name == "validations").expect("validations");
+        assert_eq!(validations.kind, SpecKind::Group);
+        assert_eq!(validations.children.len(), 2);
+        assert_eq!(validations.children[0].name, "validates email");
+        assert_eq!(validations.children[1].name, "requires name");
+
+        assert!(tree.root.iter().any(|n| n.name == "standalone test" && n.kind == SpecKind::Spec));
+    }
+
+    #[test]
+    fn parse_exunit_fixture() {
+        let Some(source) = read_fixture("exunit/base/test/user_test.exs") else { return };
+        let tree = parse_file(&source, "test/user_test.exs", exunit_framework());
+        let tree = tree.expect("parsed fixture");
+        let validations = tree.root.iter().find(|n| n.name == "validations").expect("validations");
+        assert_eq!(validations.children.len(), 2);
     }
 }
