@@ -137,6 +137,42 @@ fn cli_base_dir_without_head_dir_errors() {
 }
 
 #[test]
+fn cli_watch_base_dir_without_head_dir_errors() {
+    Command::cargo_bin("spec-diff")
+        .expect("binary")
+        .args(["--watch", "--base-dir", "/tmp/nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be used together"));
+}
+
+#[test]
+fn cli_parameterized_case_count_rendered() {
+    let Some(fixtures) = fixtures_dir() else {
+        eprintln!("skipping: specdiff-tests not found");
+        return;
+    };
+    let base = fixtures.join("pytest/base");
+    let head = fixtures.join("pytest/head");
+
+    let output = Command::cargo_bin("spec-diff")
+        .expect("binary")
+        .args([
+            "--base-dir", base.to_str().expect("utf8"),
+            "--head-dir", head.to_str().expect("utf8"),
+            "--no-color",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        stdout.contains("[4 cases]"),
+        "should render case count suffix, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn cli_shared_example_resolution() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");

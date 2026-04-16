@@ -230,12 +230,22 @@ pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
                 return extract_method_name(function_node, source);
             }
             if function_node.kind() == "member_expression" {
-                let object = function_node.child_by_field_name("object")?;
-                return node_text(object, source);
+                let base = base_object(function_node)?;
+                return node_text(base, source);
             }
             node_text(function_node, source)
         }
         _ => None,
+    }
+}
+
+fn base_object(node: Node) -> Option<Node> {
+    let mut current = node;
+    loop {
+        if current.kind() != "member_expression" {
+            return Some(current);
+        }
+        current = current.child_by_field_name("object")?;
     }
 }
 
@@ -326,12 +336,8 @@ fn extract_string_content(node: Node, source: &str) -> Option<String> {
     }
 }
 
-fn node_text(node: Node, source: &str) -> Option<String> {
+pub fn node_text(node: Node, source: &str) -> Option<String> {
     source.get(node.byte_range()).map(|s| s.to_string())
-}
-
-pub fn node_text_pub(node: Node, source: &str) -> Option<String> {
-    node_text(node, source)
 }
 
 fn try_match_marker_node(
@@ -662,7 +668,7 @@ fn detect_table_driven(
     let body = node.child_by_field_name("body")?;
 
     let mut has_loop_with_run = false;
-    let mut case_count: Option<usize> = None;
+    let mut total_cases: usize = 0;
 
     let mut stack = vec![body];
     while let Some(current) = stack.pop() {
@@ -678,9 +684,7 @@ fn detect_table_driven(
                     .children(&mut lc)
                     .filter(|c| c.kind() == "literal_element")
                     .count();
-                if items > 0 && case_count.is_none() {
-                    case_count = Some(items);
-                }
+                total_cases += items;
             }
 
             if child.kind() == loop_kind && call_contains(child, source, run_call) {
@@ -691,11 +695,9 @@ fn detect_table_driven(
         }
     }
 
-    if has_loop_with_run
-        && let Some(count) = case_count
-    {
+    if has_loop_with_run && total_cases > 0 {
         return Some(crate::parse::ParamInfo {
-            case_count: count,
+            case_count: total_cases,
             labels: vec![],
         });
     }
@@ -818,19 +820,18 @@ fn python_inherited(
     source: &str,
     registry: &SharedExampleRegistry,
 ) -> Vec<SpecNode> {
+    let refs = crate::parse::shared::python_base_refs(node, source);
     let mut specs = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "argument_list" {
-            let mut inner = child.walk();
-            for arg in child.children(&mut inner) {
-                if arg.kind() == "identifier"
-                    && let Some(parent_name) = node_text(arg, source)
-                    && let Some(parent_specs) = registry.get_type(&parent_name)
-                {
-                    specs.extend_from_slice(parent_specs);
-                }
-            }
+    for r in refs {
+        let resolved = registry.resolve_type(&r);
+        if !resolved.is_empty() {
+            specs.extend(resolved);
+            continue;
+        }
+        if let Some(tail) = r.rsplit('.').next()
+            && tail != r
+        {
+            specs.extend(registry.resolve_type(tail));
         }
     }
     specs
@@ -841,30 +842,22 @@ fn ruby_included(
     source: &str,
     registry: &SharedExampleRegistry,
 ) -> Vec<SpecNode> {
-    let mut specs = Vec::new();
     let mut cursor = node.walk();
-    let body = node.children(&mut cursor).find(|c| c.kind() == "body_statement");
-    let Some(body) = body else { return specs };
-
-    let mut body_cursor = body.walk();
-    for child in body.children(&mut body_cursor) {
-        if child.kind() != "call" {
+    let Some(body) = node.children(&mut cursor).find(|c| c.kind() == "body_statement") else {
+        return vec![];
+    };
+    let refs = crate::parse::shared::ruby_include_refs(body, source);
+    let mut specs = Vec::new();
+    for r in refs {
+        let resolved = registry.resolve_type(&r);
+        if !resolved.is_empty() {
+            specs.extend(resolved);
             continue;
         }
-        let Some(method) = extract_method_name(child, source) else { continue };
-        if method != "include" && method != "extend" {
-            continue;
-        }
-
-        let Some(args) = find_arguments(child) else { continue };
-        let mut arg_cursor = args.walk();
-        for arg in args.children(&mut arg_cursor) {
-            if (arg.kind() == "constant" || arg.kind() == "scope_resolution")
-                && let Some(name) = node_text(arg, source)
-                && let Some(module_specs) = registry.get_type(&name)
-            {
-                specs.extend_from_slice(module_specs);
-            }
+        if let Some(tail) = r.rsplit("::").next()
+            && tail != r
+        {
+            specs.extend(registry.resolve_type(tail));
         }
     }
     specs
@@ -1439,5 +1432,127 @@ end
         assert!(names.contains(&"shared one"), "included test_shared_one should appear, got {names:?}");
         assert!(names.contains(&"shared two"));
         assert!(names.contains(&"own"));
+    }
+
+    #[test]
+    fn pytest_inheritance_resolves_dotted_base() {
+        let parent = r#"
+class TestPersistable:
+    def test_has_id(self):
+        pass
+"#;
+        let child = r#"
+import mixins
+
+class TestUser(mixins.TestPersistable):
+    def test_own(self):
+        pass
+"#;
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(parent, pytest_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(child, "tests/test_user.py", pytest_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+        let user = tree.root.iter().find(|n| n.name == "User").expect("User");
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"has id"), "mixins.TestPersistable base should resolve, got {names:?}");
+        assert!(names.contains(&"own"));
+    }
+
+    #[test]
+    fn ruby_scope_resolution_module_name() {
+        let support = r#"
+module Foo
+  module SharedBehavior
+    def test_shared
+      assert true
+    end
+  end
+end
+"#;
+        let test = r#"
+class TestUser < Minitest::Test
+  include Foo::SharedBehavior
+  def test_own
+    assert true
+  end
+end
+"#;
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(support, minitest_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(test, "test/user_test.rb", minitest_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+        let user = tree.root.iter().find(|n| n.name == "User").expect("User");
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"shared"), "Foo::SharedBehavior should resolve, got {names:?}");
+        assert!(names.contains(&"own"));
+    }
+
+    #[test]
+    fn ruby_transitive_module_include() {
+        let source = r#"
+module Inner
+  def test_deep
+    assert true
+  end
+end
+
+module Outer
+  include Inner
+
+  def test_outer
+    assert true
+  end
+end
+
+class TestUser < Minitest::Test
+  include Outer
+
+  def test_own
+    assert true
+  end
+end
+"#;
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(source, minitest_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(source, "test/user_test.rb", minitest_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+        let user = tree.root.iter().find(|n| n.name == "User").expect("User");
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"deep"), "transitive include should surface Inner's test, got {names:?}");
+        assert!(names.contains(&"outer"));
+        assert!(names.contains(&"own"));
+    }
+
+    #[test]
+    fn go_table_driven_multiple_slices_sums_counts() {
+        let source = r#"package user
+import "testing"
+
+func TestValidate(t *testing.T) {
+    emails := []struct{ name, input string }{
+        {"valid", "a@b"},
+        {"empty", ""},
+    }
+    for _, tc := range emails {
+        t.Run(tc.name, func(t *testing.T) { _ = tc.input })
+    }
+
+    numbers := []struct{ name string; n int }{
+        {"zero", 0},
+        {"one", 1},
+        {"two", 2},
+    }
+    for _, tc := range numbers {
+        t.Run(tc.name, func(t *testing.T) { _ = tc.n })
+    }
+}
+"#;
+        let tree = parse_file(source, "user_test.go", go_framework()).expect("parsed");
+        let v = tree.root.iter().find(|n| n.name == "Validate").expect("Validate");
+        let param = v.parameterized.as_ref().expect("has parameterization");
+        assert_eq!(param.case_count, 5, "should sum both slices: 2 + 3");
     }
 }

@@ -146,6 +146,23 @@ pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
     Ok(file_diffs)
 }
 
+fn type_scan_globs(language: &str) -> &'static [&'static str] {
+    match language {
+        "ruby" => &[
+            "test/**/*.rb",
+            "spec/**/*.rb",
+            "lib/**/*.rb",
+        ],
+        "python" => &[
+            "tests/**/*.py",
+            "test/**/*.py",
+            "conftest.py",
+            "**/conftest.py",
+        ],
+        _ => &[],
+    }
+}
+
 fn build_shared_registry(
     source: &dyn FileSource,
     all_paths: &[String],
@@ -183,6 +200,16 @@ fn build_shared_registry(
                     .any(|f| f.name == fw.name)
                 {
                     scan_paths.insert((rel_path.clone(), fw.name.as_str()));
+                }
+            }
+        }
+
+        if scans_types {
+            for glob_pattern in type_scan_globs(fw.language.as_str()) {
+                if let Ok(extra_paths) = source.list_shared_files(glob_pattern) {
+                    for p in extra_paths {
+                        scan_paths.insert((p, fw.name.as_str()));
+                    }
                 }
             }
         }

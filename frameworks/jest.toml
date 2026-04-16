@@ -29,7 +29,17 @@ name_source_type = "string_literal"
 
 [[framework.parameterized]]
 detection = "method_call"
-method_names = ["describe.each", "it.each", "test.each"]
+method_names = [
+    "describe.each",
+    "it.each",
+    "test.each",
+    "it.concurrent.each",
+    "test.concurrent.each",
+    "it.only.each",
+    "test.only.each",
+    "it.skip.each",
+    "test.skip.each",
+]
 case_count_source = "first_argument"
 case_count_type = "array_length"
 

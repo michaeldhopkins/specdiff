@@ -6,6 +6,7 @@ use std::collections::HashMap;
 pub struct SharedExampleRegistry {
     definitions: HashMap<String, Vec<SpecNode>>,
     types: HashMap<String, Vec<SpecNode>>,
+    type_refs: HashMap<String, Vec<String>>,
 }
 
 impl SharedExampleRegistry {
@@ -17,12 +18,42 @@ impl SharedExampleRegistry {
         self.types.insert(name, specs);
     }
 
+    pub fn set_type_refs(&mut self, name: String, refs: Vec<String>) {
+        self.type_refs.insert(name, refs);
+    }
+
     pub fn get(&self, name: &str) -> Option<&[SpecNode]> {
         self.definitions.get(name).map(|v| v.as_slice())
     }
 
     pub fn get_type(&self, name: &str) -> Option<&[SpecNode]> {
         self.types.get(name).map(|v| v.as_slice())
+    }
+
+    pub fn resolve_type(&self, name: &str) -> Vec<SpecNode> {
+        let mut visited = std::collections::HashSet::new();
+        let mut specs = Vec::new();
+        self.resolve_type_inner(name, &mut visited, &mut specs);
+        specs
+    }
+
+    fn resolve_type_inner(
+        &self,
+        name: &str,
+        visited: &mut std::collections::HashSet<String>,
+        out: &mut Vec<SpecNode>,
+    ) {
+        if !visited.insert(name.to_string()) {
+            return;
+        }
+        if let Some(refs) = self.type_refs.get(name) {
+            for r in refs {
+                self.resolve_type_inner(r, visited, out);
+            }
+        }
+        if let Some(specs) = self.types.get(name) {
+            out.extend_from_slice(specs);
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -78,28 +109,45 @@ fn scan_types(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if type_node_kinds.contains(&child.kind())
-            && let Some((name, specs)) = extract_type_definition(child, source, framework)
+            && let Some(def) = extract_type_definition(child, source, framework)
         {
-            registry.register_type(name, specs);
+            let names = type_registration_names(&def.name);
+            for name in &names {
+                registry.register_type(name.clone(), def.specs.clone());
+            }
+            for name in names {
+                registry.set_type_refs(name, def.refs.clone());
+            }
         }
         scan_types(child, source, framework, registry);
     }
+}
+
+fn type_registration_names(full_name: &str) -> Vec<String> {
+    let mut names = vec![full_name.to_string()];
+    if let Some(tail) = full_name.rsplit("::").next()
+        && tail != full_name
+    {
+        names.push(tail.to_string());
+    }
+    names
 }
 
 fn extract_type_definition(
     node: tree_sitter::Node,
     source: &str,
     framework: &FrameworkDef,
-) -> Option<(String, Vec<SpecNode>)> {
+) -> Option<TypeDefinition> {
     let name_node = match framework.language.as_str() {
         "python" => node.child_by_field_name("name")?,
         "ruby" => {
             let mut cursor = node.walk();
-            node.children(&mut cursor).find(|c| c.kind() == "constant")?
+            node.children(&mut cursor)
+                .find(|c| c.kind() == "constant" || c.kind() == "scope_resolution")?
         }
         _ => return None,
     };
-    let name = crate::parse::engine::node_text_pub(name_node, source)?;
+    let full_name = crate::parse::engine::node_text(name_node, source)?;
 
     let body = match framework.language.as_str() {
         "python" => node.child_by_field_name("body")?,
@@ -111,10 +159,79 @@ fn extract_type_definition(
     };
 
     let specs = crate::parse::engine::parse_children(body, source, framework);
-    if specs.is_empty() {
+
+    let refs = match framework.language.as_str() {
+        "python" => python_base_refs(node, source),
+        "ruby" => ruby_include_refs(body, source),
+        _ => vec![],
+    };
+
+    if specs.is_empty() && refs.is_empty() {
         return None;
     }
-    Some((name, specs))
+
+    Some(TypeDefinition { name: full_name, specs, refs })
+}
+
+pub struct TypeDefinition {
+    pub name: String,
+    pub specs: Vec<SpecNode>,
+    pub refs: Vec<String>,
+}
+
+pub fn python_base_refs(class_node: tree_sitter::Node, source: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut cursor = class_node.walk();
+    for child in class_node.children(&mut cursor) {
+        if child.kind() == "argument_list" {
+            let mut inner = child.walk();
+            for arg in child.children(&mut inner) {
+                match arg.kind() {
+                    "identifier" | "attribute" => {
+                        if let Some(text) = crate::parse::engine::node_text(arg, source) {
+                            refs.push(text);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    refs
+}
+
+pub fn ruby_include_refs(body: tree_sitter::Node, source: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut body_cursor = body.walk();
+    for child in body.children(&mut body_cursor) {
+        if child.kind() != "call" {
+            continue;
+        }
+        let Some(method) = crate::parse::engine::extract_method_name(child, source) else { continue };
+        if method != "include" && method != "extend" {
+            continue;
+        }
+        let Some(args) = find_arguments_in_call(child) else { continue };
+        let mut arg_cursor = args.walk();
+        for arg in args.children(&mut arg_cursor) {
+            if (arg.kind() == "constant" || arg.kind() == "scope_resolution")
+                && let Some(name) = crate::parse::engine::node_text(arg, source)
+            {
+                refs.push(name);
+            }
+        }
+    }
+    refs
+}
+
+fn find_arguments_in_call(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "argument_list" | "arguments") {
+            return Some(child);
+        }
+    }
+    None
 }
 
 fn scan_node(
