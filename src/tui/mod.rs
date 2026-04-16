@@ -4,7 +4,7 @@ use crate::cli::Cli;
 use crate::diff::filter_file_diffs;
 use crate::diff::types::FileDiff;
 use crate::parse;
-use crate::pipeline::{self, VcsSource};
+use crate::pipeline::{self, DirectorySource, VcsSource};
 use crate::vcs;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -29,7 +29,72 @@ struct AppState {
     needs_redraw: bool,
 }
 
+enum WatchMode<'a> {
+    Vcs {
+        vcs: &'a dyn vcs::Vcs,
+        merge_base: String,
+        head_rev: String,
+    },
+    Directory {
+        base: PathBuf,
+        head: PathBuf,
+    },
+}
+
+impl WatchMode<'_> {
+    fn compute_diffs(&self, cli: &Cli) -> Result<Vec<FileDiff>> {
+        match self {
+            WatchMode::Vcs { vcs, merge_base, head_rev } => {
+                let changed = vcs.changed_files(merge_base, head_rev)?;
+                let test_files: Vec<PathBuf> = changed
+                    .into_iter()
+                    .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
+                    .collect();
+                let source = VcsSource {
+                    vcs: *vcs,
+                    files: test_files,
+                    merge_base: merge_base.clone(),
+                    head_rev: head_rev.clone(),
+                };
+                pipeline::diff_files(&source, cli)
+            }
+            WatchMode::Directory { base, head } => {
+                let source = DirectorySource {
+                    base: base.clone(),
+                    head: head.clone(),
+                };
+                pipeline::diff_files(&source, cli)
+            }
+        }
+    }
+
+    fn watch_paths(&self) -> Vec<PathBuf> {
+        match self {
+            WatchMode::Vcs { .. } => {
+                std::env::current_dir().map(|c| vec![c]).unwrap_or_default()
+            }
+            WatchMode::Directory { base, head } => {
+                let mut paths = vec![head.clone()];
+                if base != head {
+                    paths.push(base.clone());
+                }
+                paths
+            }
+        }
+    }
+}
+
 pub fn run_watch(cli: &Cli) -> Result<()> {
+    match (&cli.base_dir, &cli.head_dir) {
+        (Some(base), Some(head)) => run_watch_directory(base, head, cli),
+        (Some(_), None) | (None, Some(_)) => {
+            anyhow::bail!("--base-dir and --head-dir must be used together")
+        }
+        (None, None) => run_watch_vcs(cli),
+    }
+}
+
+fn run_watch_vcs(cli: &Cli) -> Result<()> {
     let cwd = std::env::current_dir().context("cannot determine working directory")?;
     let vcs = crate::vcs::detect(&cwd)?;
 
@@ -39,7 +104,25 @@ pub fn run_watch(cli: &Cli) -> Result<()> {
     let merge_base = vcs.merge_base(&base_rev, &head_rev)
         .unwrap_or_else(|_| base_rev.clone());
 
-    let file_diffs = compute_diffs(vcs.as_ref(), &merge_base, &head_rev, cli)?;
+    let mode = WatchMode::Vcs {
+        vcs: vcs.as_ref(),
+        merge_base,
+        head_rev,
+    };
+
+    run_watch_loop(&mode, cli)
+}
+
+fn run_watch_directory(base: &str, head: &str, cli: &Cli) -> Result<()> {
+    let mode = WatchMode::Directory {
+        base: PathBuf::from(base),
+        head: PathBuf::from(head),
+    };
+    run_watch_loop(&mode, cli)
+}
+
+fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
+    let file_diffs = mode.compute_diffs(cli)?;
 
     let mut state = AppState {
         file_diffs,
@@ -53,8 +136,7 @@ pub fn run_watch(cli: &Cli) -> Result<()> {
     let (tx, rx) = mpsc::channel();
 
     let fs_tx = tx.clone();
-    let watch_path = cwd.clone();
-    let _debouncer = setup_watcher(watch_path, fs_tx)?;
+    let _debouncer = setup_watcher(mode.watch_paths(), fs_tx)?;
 
     let tick_tx = tx.clone();
     std::thread::spawn(move || loop {
@@ -71,13 +153,16 @@ pub fn run_watch(cli: &Cli) -> Result<()> {
     }));
 
     let mut terminal = ratatui::init();
-    let result = run_event_loop(&mut terminal, &mut state, &rx, vcs.as_ref(), &merge_base, &head_rev, cli);
+    let result = run_event_loop(&mut terminal, &mut state, &rx, mode, cli);
     ratatui::restore();
 
     result
 }
 
-fn setup_watcher(path: PathBuf, tx: mpsc::Sender<AppEvent>) -> Result<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> {
+fn setup_watcher(
+    paths: Vec<PathBuf>,
+    tx: mpsc::Sender<AppEvent>,
+) -> Result<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> {
     let mut debouncer = new_debouncer(
         Duration::from_millis(200),
         move |events: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
@@ -97,7 +182,13 @@ fn setup_watcher(path: PathBuf, tx: mpsc::Sender<AppEvent>) -> Result<notify_deb
         },
     )?;
 
-    debouncer.watcher().watch(&path, notify::RecursiveMode::Recursive)?;
+    for path in paths {
+        if path.exists() {
+            debouncer
+                .watcher()
+                .watch(&path, notify::RecursiveMode::Recursive)?;
+        }
+    }
 
     Ok(debouncer)
 }
@@ -106,9 +197,7 @@ fn run_event_loop(
     terminal: &mut DefaultTerminal,
     state: &mut AppState,
     rx: &mpsc::Receiver<AppEvent>,
-    vcs: &dyn vcs::Vcs,
-    merge_base: &str,
-    head_rev: &str,
+    mode: &WatchMode<'_>,
     cli: &Cli,
 ) -> Result<()> {
     loop {
@@ -138,7 +227,7 @@ fn run_event_loop(
 
         match rx.try_recv() {
             Ok(AppEvent::FileChanged | AppEvent::Tick) => {
-                state.file_diffs = compute_diffs(vcs, merge_base, head_rev, cli)?;
+                state.file_diffs = mode.compute_diffs(cli)?;
                 state.needs_redraw = true;
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -183,22 +272,4 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
         }
         _ => {}
     }
-}
-
-fn compute_diffs(vcs: &dyn vcs::Vcs, merge_base: &str, head_rev: &str, cli: &Cli) -> Result<Vec<FileDiff>> {
-    let changed = vcs.changed_files(merge_base, head_rev)?;
-
-    let test_files: Vec<PathBuf> = changed
-        .into_iter()
-        .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
-        .collect();
-
-    let source = VcsSource {
-        vcs,
-        files: test_files,
-        merge_base: merge_base.to_string(),
-        head_rev: head_rev.to_string(),
-    };
-
-    pipeline::diff_files(&source, cli)
 }
