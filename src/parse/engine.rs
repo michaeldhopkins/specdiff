@@ -1490,6 +1490,35 @@ end
     }
 
     #[test]
+    fn ruby_leaf_name_include_resolves() {
+        let support = r#"
+module Support
+  module Persistable
+    def test_has_id
+      assert true
+    end
+  end
+end
+"#;
+        let test = r#"
+class TestUser < Minitest::Test
+  include Persistable
+  def test_own
+    assert true
+  end
+end
+"#;
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(support, minitest_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(test, "test/user_test.rb", minitest_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+        let user = tree.root.iter().find(|n| n.name == "User").expect("User");
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"has id"), "bare leaf include Persistable should resolve, got {names:?}");
+    }
+
+    #[test]
     fn ruby_transitive_module_include() {
         let source = r#"
 module Inner

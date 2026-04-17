@@ -15,11 +15,11 @@ impl SharedExampleRegistry {
     }
 
     pub fn register_type(&mut self, name: String, specs: Vec<SpecNode>) {
-        self.types.insert(name, specs);
+        self.types.entry(name).or_insert(specs);
     }
 
     pub fn set_type_refs(&mut self, name: String, refs: Vec<String>) {
-        self.type_refs.insert(name, refs);
+        self.type_refs.entry(name).or_insert(refs);
     }
 
     pub fn get(&self, name: &str) -> Option<&[SpecNode]> {
@@ -173,13 +173,13 @@ fn extract_type_definition(
     Some(TypeDefinition { name: full_name, specs, refs })
 }
 
-pub struct TypeDefinition {
+struct TypeDefinition {
     pub name: String,
     pub specs: Vec<SpecNode>,
     pub refs: Vec<String>,
 }
 
-pub fn python_base_refs(class_node: tree_sitter::Node, source: &str) -> Vec<String> {
+pub(crate) fn python_base_refs(class_node: tree_sitter::Node, source: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut cursor = class_node.walk();
     for child in class_node.children(&mut cursor) {
@@ -200,7 +200,7 @@ pub fn python_base_refs(class_node: tree_sitter::Node, source: &str) -> Vec<Stri
     refs
 }
 
-pub fn ruby_include_refs(body: tree_sitter::Node, source: &str) -> Vec<String> {
+pub(crate) fn ruby_include_refs(body: tree_sitter::Node, source: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut body_cursor = body.walk();
     for child in body.children(&mut body_cursor) {

@@ -147,6 +147,16 @@ fn cli_watch_base_dir_without_head_dir_errors() {
 }
 
 #[test]
+fn cli_watch_head_dir_without_base_dir_errors() {
+    Command::cargo_bin("spec-diff")
+        .expect("binary")
+        .args(["--watch", "--head-dir", "/tmp/nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be used together"));
+}
+
+#[test]
 fn cli_parameterized_case_count_rendered() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");

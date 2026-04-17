@@ -14,6 +14,9 @@ pub trait FileSource {
     fn list_shared_files(&self, _glob_pattern: &str) -> Result<Vec<String>> {
         Ok(vec![])
     }
+    fn list_shared_files_all(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 pub struct DirectorySource {
@@ -48,6 +51,21 @@ impl FileSource for DirectorySource {
             collect_all_files_recursive(dir, dir, &pat, &mut files);
         }
         Ok(files.into_iter().collect())
+    }
+
+    fn list_shared_files_all(&self) -> Vec<String> {
+        let mut all = std::collections::BTreeSet::new();
+        let languages: &[&str] = &["python", "ruby"];
+        for lang in languages {
+            for glob_str in type_scan_globs(lang) {
+                if let Ok(pat) = glob::Pattern::new(glob_str) {
+                    for dir in [&self.base, &self.head] {
+                        collect_all_files_recursive(dir, dir, &pat, &mut all);
+                    }
+                }
+            }
+        }
+        all.into_iter().collect()
     }
 }
 
@@ -98,13 +116,35 @@ impl FileSource for VcsSource<'_> {
         self.vcs.files_matching(glob_pattern)
             .map(|files| files.into_iter().map(|p| p.to_string_lossy().into_owned()).collect())
     }
+
+    fn list_shared_files_all(&self) -> Vec<String> {
+        let mut all = std::collections::BTreeSet::new();
+        let languages: &[&str] = &["python", "ruby"];
+        for lang in languages {
+            for glob in type_scan_globs(lang) {
+                if let Ok(files) = self.vcs.files_matching(glob) {
+                    for f in files {
+                        all.insert(f.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+        all.into_iter().collect()
+    }
 }
 
 pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
     let all_paths = source.list_files()?;
+    let shared_paths = source.list_shared_files_all();
 
-    let base_registry = build_shared_registry(source, &all_paths, cli, |s, path| s.read_base(path));
-    let head_registry = build_shared_registry(source, &all_paths, cli, |s, path| s.read_head(path));
+    let all_scannable: Vec<String> = {
+        let mut set: std::collections::BTreeSet<String> = all_paths.iter().cloned().collect();
+        set.extend(shared_paths);
+        set.into_iter().collect()
+    };
+
+    let base_registry = build_shared_registry(source, &all_scannable, cli, |s, path| s.read_base(path));
+    let head_registry = build_shared_registry(source, &all_scannable, cli, |s, path| s.read_head(path));
 
     let mut file_diffs = Vec::new();
 
