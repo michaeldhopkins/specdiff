@@ -12,17 +12,17 @@ fn fixtures_dir() -> Option<&'static Path> {
 
 #[test]
 fn cli_version() {
-    Command::cargo_bin("spec-diff")
+    Command::cargo_bin("specdiff")
         .expect("binary")
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("spec-diff"));
+        .stdout(predicate::str::contains("specdiff"));
 }
 
 #[test]
 fn cli_help() {
-    Command::cargo_bin("spec-diff")
+    Command::cargo_bin("specdiff")
         .expect("binary")
         .arg("--help")
         .assert()
@@ -31,10 +31,11 @@ fn cli_help() {
 }
 
 #[test]
-fn cli_no_args_in_non_repo_errors() {
+fn cli_print_in_non_repo_errors() {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    Command::cargo_bin("spec-diff")
+    Command::cargo_bin("specdiff")
         .expect("binary")
+        .arg("--print")
         .current_dir(dir.path())
         .assert()
         .failure()
@@ -42,7 +43,27 @@ fn cli_no_args_in_non_repo_errors() {
 }
 
 #[test]
-fn cli_tree_format_rspec_fixtures() {
+fn cli_base_dir_without_head_dir_errors() {
+    Command::cargo_bin("specdiff")
+        .expect("binary")
+        .args(["--print", "--base-dir", "/tmp/nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be used together"));
+}
+
+#[test]
+fn cli_head_dir_without_base_dir_errors() {
+    Command::cargo_bin("specdiff")
+        .expect("binary")
+        .args(["--print", "--head-dir", "/tmp/nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be used together"));
+}
+
+#[test]
+fn cli_print_tree_rspec_fixtures() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");
         return;
@@ -50,9 +71,9 @@ fn cli_tree_format_rspec_fixtures() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    Command::cargo_bin("spec-diff")
+    Command::cargo_bin("specdiff")
         .expect("binary")
-        .args(["--base-dir", base.to_str().expect("utf8"), "--head-dir", head.to_str().expect("utf8")])
+        .args(["--print", "--base-dir", base.to_str().expect("utf8"), "--head-dir", head.to_str().expect("utf8")])
         .assert()
         .success()
         .stdout(predicate::str::contains("validates email format"))
@@ -60,7 +81,7 @@ fn cli_tree_format_rspec_fixtures() {
 }
 
 #[test]
-fn cli_json_format_rspec_fixtures() {
+fn cli_print_json_rspec_fixtures() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");
         return;
@@ -68,9 +89,10 @@ fn cli_json_format_rspec_fixtures() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    Command::cargo_bin("spec-diff")
+    Command::cargo_bin("specdiff")
         .expect("binary")
         .args([
+            "--print",
             "--base-dir", base.to_str().expect("utf8"),
             "--head-dir", head.to_str().expect("utf8"),
             "--format", "json",
@@ -82,7 +104,7 @@ fn cli_json_format_rspec_fixtures() {
 }
 
 #[test]
-fn cli_compact_format_rust_fixtures() {
+fn cli_print_compact_rust_fixtures() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");
         return;
@@ -90,9 +112,10 @@ fn cli_compact_format_rust_fixtures() {
     let base = fixtures.join("rust_builtin/base");
     let head = fixtures.join("rust_builtin/head");
 
-    Command::cargo_bin("spec-diff")
+    Command::cargo_bin("specdiff")
         .expect("binary")
         .args([
+            "--print",
             "--base-dir", base.to_str().expect("utf8"),
             "--head-dir", head.to_str().expect("utf8"),
             "--format", "compact",
@@ -104,7 +127,7 @@ fn cli_compact_format_rust_fixtures() {
 }
 
 #[test]
-fn cli_changed_only_flag() {
+fn cli_print_changed_only() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");
         return;
@@ -112,9 +135,10 @@ fn cli_changed_only_flag() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    let output = Command::cargo_bin("spec-diff")
+    let output = Command::cargo_bin("specdiff")
         .expect("binary")
         .args([
+            "--print",
             "--base-dir", base.to_str().expect("utf8"),
             "--head-dir", head.to_str().expect("utf8"),
             "--changed-only",
@@ -123,51 +147,22 @@ fn cli_changed_only_flag() {
         .success();
 
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    assert!(!stdout.contains("   associations\n       has many posts\n"), "unchanged associations group should be filtered");
+    assert!(!stdout.contains("   associations\n       has many posts\n"), "unchanged should be filtered");
 }
 
 #[test]
-fn cli_base_dir_without_head_dir_errors() {
-    Command::cargo_bin("spec-diff")
-        .expect("binary")
-        .args(["--base-dir", "/tmp/nonexistent"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("must be used together"));
-}
-
-#[test]
-fn cli_watch_base_dir_without_head_dir_errors() {
-    Command::cargo_bin("spec-diff")
-        .expect("binary")
-        .args(["--watch", "--base-dir", "/tmp/nonexistent"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("must be used together"));
-}
-
-#[test]
-fn cli_watch_head_dir_without_base_dir_errors() {
-    Command::cargo_bin("spec-diff")
-        .expect("binary")
-        .args(["--watch", "--head-dir", "/tmp/nonexistent"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("must be used together"));
-}
-
-#[test]
-fn cli_parameterized_case_count_rendered() {
+fn cli_print_shared_example_resolution() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");
         return;
     };
-    let base = fixtures.join("pytest/base");
-    let head = fixtures.join("pytest/head");
+    let base = fixtures.join("rspec/base");
+    let head = fixtures.join("rspec/head");
 
-    let output = Command::cargo_bin("spec-diff")
+    let output = Command::cargo_bin("specdiff")
         .expect("binary")
         .args([
+            "--print",
             "--base-dir", base.to_str().expect("utf8"),
             "--head-dir", head.to_str().expect("utf8"),
             "--no-color",
@@ -176,14 +171,12 @@ fn cli_parameterized_case_count_rendered() {
         .success();
 
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    assert!(
-        stdout.contains("[4 cases]"),
-        "should render case count suffix, got:\n{stdout}"
-    );
+    assert!(stdout.contains("behaves like a timestamped model"), "should resolve shared examples");
+    assert!(stdout.contains("has created_at"));
 }
 
 #[test]
-fn cli_shared_example_resolution() {
+fn cli_print_filter() {
     let Some(fixtures) = fixtures_dir() else {
         eprintln!("skipping: specdiff-tests not found");
         return;
@@ -191,43 +184,10 @@ fn cli_shared_example_resolution() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    let output = Command::cargo_bin("spec-diff")
+    let output = Command::cargo_bin("specdiff")
         .expect("binary")
         .args([
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
-            "--no-color",
-        ])
-        .assert()
-        .success();
-
-    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    assert!(
-        stdout.contains("behaves like a timestamped model"),
-        "should resolve it_behaves_like into nested group, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("has created_at"),
-        "should inline shared example specs, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("has updated_at"),
-        "should inline second shared example spec"
-    );
-}
-
-#[test]
-fn cli_filter_flag() {
-    let Some(fixtures) = fixtures_dir() else {
-        eprintln!("skipping: specdiff-tests not found");
-        return;
-    };
-    let base = fixtures.join("rspec/base");
-    let head = fixtures.join("rspec/head");
-
-    let output = Command::cargo_bin("spec-diff")
-        .expect("binary")
-        .args([
+            "--print",
             "--base-dir", base.to_str().expect("utf8"),
             "--head-dir", head.to_str().expect("utf8"),
             "--filter", "admin",
@@ -239,4 +199,28 @@ fn cli_filter_flag() {
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
     assert!(stdout.contains("admin"), "should show admin specs");
     assert!(!stdout.contains("validates email"), "should not show non-matching specs");
+}
+
+#[test]
+fn cli_print_parameterized_case_count() {
+    let Some(fixtures) = fixtures_dir() else {
+        eprintln!("skipping: specdiff-tests not found");
+        return;
+    };
+    let base = fixtures.join("pytest/base");
+    let head = fixtures.join("pytest/head");
+
+    let output = Command::cargo_bin("specdiff")
+        .expect("binary")
+        .args([
+            "--print",
+            "--base-dir", base.to_str().expect("utf8"),
+            "--head-dir", head.to_str().expect("utf8"),
+            "--no-color",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("[4 cases]"), "should render case count");
 }

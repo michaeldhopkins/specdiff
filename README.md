@@ -1,4 +1,4 @@
-# spec-diff
+# specdiff
 
 Show how the test outline of a project has changed on a branch.
 
@@ -18,7 +18,7 @@ Parses test files from two VCS revisions using tree-sitter, normalizes them into
 ## Requirements
 
 - **Git**: Any reasonably modern git (1.7+)
-- **Jujutsu** (optional): If a `.jj` directory is present, spec-diff uses jj automatically
+- **Jujutsu** (optional): If a `.jj` directory is present, specdiff uses jj automatically
 
 ## Installation
 
@@ -26,49 +26,51 @@ Parses test files from two VCS revisions using tree-sitter, normalizes them into
 
 ```bash
 brew tap michaeldhopkins/tap
-brew install spec-diff
+brew install specdiff
 ```
 
 ### From source
 
 ```bash
-cargo install --git https://github.com/michaeldhopkins/spec-diff
+cargo install --git https://github.com/michaeldhopkins/specdiff
 ```
 
 ### Manual download
 
-Download binaries from [GitHub Releases](https://github.com/michaeldhopkins/spec-diff/releases).
+Download binaries from [GitHub Releases](https://github.com/michaeldhopkins/specdiff/releases).
 
 ## Usage
 
 ```bash
-spec-diff [OPTIONS]
+specdiff
 ```
 
-Run in a git/jj repository to see test outline changes on the current branch.
+Run in a git/jj repository. Opens a TUI that shows test outline changes on the current branch and live-refreshes when test files change.
+
+Keybindings: `q` quit, `c` toggle changed-only, `j/k` scroll, `PgUp/PgDn` page scroll.
+
+### Non-interactive output
+
+```bash
+specdiff --print
+specdiff -p --format json
+specdiff -p --format compact
+```
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `--base <REV>` | Base revision (default: merge-base with main) |
+| `-p`, `--print` | Print diff to stdout and exit (non-interactive) |
+| `--base <REV>` | Base revision (default: auto-detected) |
 | `--head <REV>` | Head revision (default: working copy) |
 | `--format <FORMAT>` | Output format: `tree` (default), `json`, `compact` |
 | `--changed-only` | Only show changed specs |
-| `--watch` | Start TUI watch mode with live refresh |
 | `--framework <NAME>` | Force a specific framework |
 | `--filter <PATTERN>` | Filter specs by name pattern |
 | `--no-color` | Disable colored output |
 | `-h`, `--help` | Print help |
 | `-V`, `--version` | Print version |
-
-### Watch mode
-
-```bash
-spec-diff --watch
-```
-
-Starts a terminal UI that live-refreshes when test files change. Keybindings: `q` quit, `c` toggle changed-only, `j/k` scroll, `PgUp/PgDn` page scroll.
 
 ### Example output
 

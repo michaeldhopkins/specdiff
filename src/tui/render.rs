@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed_only: bool) {
+pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed_only: bool) -> Vec<usize> {
     let area = frame.area();
 
     let chunks = Layout::vertical([
@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
 
     let stats = Stats::from_file_diffs(file_diffs);
     let header_spans = vec![
-        Span::styled("spec-diff", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled("specdiff", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw("  "),
         Span::styled(format!("+{}", stats.added), Style::default().fg(Color::Green)),
         Span::raw(" "),
@@ -33,12 +33,14 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
     frame.render_widget(header, chunks[0]);
 
     let mut lines = Vec::new();
+    let mut section_offsets = Vec::new();
     for file_diff in file_diffs {
         let file_has_changes = file_diff.nodes.iter().any(DiffNode::has_changes);
         if changed_only && !file_has_changes {
             continue;
         }
 
+        section_offsets.push(lines.len());
         lines.push(Line::from(Span::styled(
             format!("  {}", file_diff.path),
             Style::default().add_modifier(Modifier::BOLD),
@@ -63,10 +65,12 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
         Span::styled("[c]", Style::default().fg(Color::DarkGray)),
         Span::raw("hanged-only  "),
         Span::styled("[j/k]", Style::default().fg(Color::DarkGray)),
-        Span::raw(" scroll"),
+        Span::raw(" next/prev file"),
     ]);
     let footer = Paragraph::new(help);
     frame.render_widget(footer, chunks[2]);
+
+    section_offsets
 }
 
 fn collect_lines(node: &DiffNode, lines: &mut Vec<Line<'_>>, depth: usize, changed_only: bool) {

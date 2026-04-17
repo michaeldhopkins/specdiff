@@ -13,16 +13,24 @@ use std::path::PathBuf;
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
 
-    if cli.watch {
-        return tui::run_watch(&cli);
-    }
-
     match (&cli.base_dir, &cli.head_dir) {
-        (Some(base_dir), Some(head_dir)) => run_directory_diff(base_dir, head_dir, &cli),
         (Some(_), None) | (None, Some(_)) => {
             anyhow::bail!("--base-dir and --head-dir must be used together")
         }
-        (None, None) => run_vcs_diff(&cli),
+        _ => {}
+    }
+
+    if cli.print {
+        return run_print(&cli);
+    }
+
+    tui::run_watch(&cli)
+}
+
+fn run_print(cli: &cli::Cli) -> Result<()> {
+    match (&cli.base_dir, &cli.head_dir) {
+        (Some(base_dir), Some(head_dir)) => run_directory_diff(base_dir, head_dir, cli),
+        _ => run_vcs_diff(cli),
     }
 }
 
@@ -31,7 +39,7 @@ fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
     let vcs = vcs::detect(&cwd)?;
 
     let branch = vcs.current_branch()?.unwrap_or_else(|| "(detached)".to_string());
-    let base_rev = cli.base.clone().unwrap_or_else(|| "main".to_string());
+    let base_rev = cli.base.clone().unwrap_or_else(|| vcs.default_base_rev());
     let head_rev = cli.head.clone().unwrap_or_else(|| vcs.default_head_rev().to_string());
 
     let merge_base = vcs.merge_base(&base_rev, &head_rev)

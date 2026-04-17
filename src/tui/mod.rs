@@ -23,6 +23,7 @@ enum AppEvent {
 struct AppState {
     file_diffs: Vec<FileDiff>,
     scroll: usize,
+    section_offsets: Vec<usize>,
     changed_only: bool,
     filter: Option<String>,
     quit: bool,
@@ -98,7 +99,7 @@ fn run_watch_vcs(cli: &Cli) -> Result<()> {
     let cwd = std::env::current_dir().context("cannot determine working directory")?;
     let vcs = crate::vcs::detect(&cwd)?;
 
-    let base_rev = cli.base.clone().unwrap_or_else(|| "main".to_string());
+    let base_rev = cli.base.clone().unwrap_or_else(|| vcs.default_base_rev());
     let head_rev = cli.head.clone().unwrap_or_else(|| vcs.default_head_rev().to_string());
 
     let merge_base = vcs.merge_base(&base_rev, &head_rev)
@@ -127,6 +128,7 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
     let mut state = AppState {
         file_diffs,
         scroll: 0,
+        section_offsets: vec![],
         changed_only: cli.changed_only,
         filter: cli.filter.clone(),
         quit: false,
@@ -213,9 +215,11 @@ fn run_event_loop(
             } else {
                 &state.file_diffs
             };
+            let mut offsets = vec![];
             terminal.draw(|frame| {
-                render::render(frame, diffs, state.scroll, state.changed_only);
+                offsets = render::render(frame, diffs, state.scroll, state.changed_only);
             })?;
+            state.section_offsets = offsets;
             state.needs_redraw = false;
         }
 
@@ -242,11 +246,19 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => state.quit = true,
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Char('j') => {
+            state.scroll = next_section(state.scroll, &state.section_offsets);
+            state.needs_redraw = true;
+        }
+        KeyCode::Char('k') => {
+            state.scroll = prev_section(state.scroll, &state.section_offsets);
+            state.needs_redraw = true;
+        }
+        KeyCode::Down => {
             state.scroll = state.scroll.saturating_add(1);
             state.needs_redraw = true;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             state.scroll = state.scroll.saturating_sub(1);
             state.needs_redraw = true;
         }
@@ -272,4 +284,21 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
         }
         _ => {}
     }
+}
+
+fn next_section(current: usize, offsets: &[usize]) -> usize {
+    offsets
+        .iter()
+        .find(|&&o| o > current)
+        .copied()
+        .unwrap_or(current)
+}
+
+fn prev_section(current: usize, offsets: &[usize]) -> usize {
+    offsets
+        .iter()
+        .rev()
+        .find(|&&o| o < current)
+        .copied()
+        .unwrap_or(0)
 }

@@ -124,6 +124,15 @@ impl Vcs for GitVcs {
         Ok(files)
     }
 
+    fn default_base_rev(&self) -> String {
+        for candidate in ["main", "master"] {
+            if self.resolve_rev(candidate).is_ok() {
+                return candidate.to_string();
+            }
+        }
+        "HEAD~1".to_string()
+    }
+
     fn default_head_rev(&self) -> &str {
         "HEAD"
     }

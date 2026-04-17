@@ -1,0 +1,62 @@
+[[framework]]
+name = "junit"
+language = "java"
+tree_sitter_crate = "tree-sitter-java"
+description = "JUnit — Java testing framework"
+
+[framework.files]
+extensions = [".java"]
+include_globs = [
+    "src/test/**/*.java",
+    "test/**/*.java",
+    "tests/**/*.java",
+]
+require_ast_confirmation = false
+
+[framework.ast_kinds]
+function = "method_declaration"
+method = "method_declaration"
+class = "class_declaration"
+body_field = "body"
+body_child = "class_body"
+name_field = "name"
+
+[[framework.marker]]
+marker_type = "annotation"
+marker_name = "Test"
+applies_to = "method"
+creates = "spec"
+
+[[framework.marker]]
+marker_type = "annotation"
+marker_name = "Nested"
+applies_to = "class"
+creates = "group"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "Test$"
+applies_to = "class"
+creates = "group"
+
+[framework.normalization]
+strip_prefixes = ["test"]
+strip_suffixes = ["Test"]
+underscore_to_space = false
+
+[framework.path_grouping]
+strip_prefixes = ["src/test/java/", "src/test/", "test/", "tests/"]
+strip_suffixes = ["Test"]
+separator = "."
+strip_extension = true
+
+[framework.inheritance]
+enabled = true
+type_node_kinds = ["class_declaration"]
+inert_containers = []
+scan_globs = ["src/test/**/*.java", "test/**/*.java", "tests/**/*.java"]
+
+[[framework.inheritance.ref_detection]]
+strategy = "superclass_args"
+container_kinds = ["superclass"]
+arg_kinds = ["type_identifier"]

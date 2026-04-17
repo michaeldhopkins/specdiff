@@ -9,6 +9,12 @@ extensions = [".rs"]
 include_globs = ["src/**/*.rs", "tests/**/*.rs"]
 require_ast_confirmation = true
 
+[framework.ast_kinds]
+function = "function_item"
+module = "mod_item"
+body_field = "body"
+name_field = "name"
+
 [[framework.marker]]
 marker_type = "attribute"
 marker_name = "test"

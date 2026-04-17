@@ -9,6 +9,11 @@ extensions = [".go"]
 include_globs = ["**/*_test.go"]
 require_ast_confirmation = false
 
+[framework.ast_kinds]
+function = "function_declaration"
+body_field = "body"
+name_field = "name"
+
 [[framework.marker]]
 marker_type = "name_pattern"
 pattern = "^Test"

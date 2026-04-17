@@ -41,6 +41,8 @@ pub fn language_for_framework(framework: &FrameworkDef) -> Option<tree_sitter::L
         "javascript" => Some(tree_sitter_javascript::LANGUAGE.into()),
         "go" => Some(tree_sitter_go::LANGUAGE.into()),
         "elixir" => Some(tree_sitter_elixir::LANGUAGE.into()),
+        "java" => Some(tree_sitter_java::LANGUAGE.into()),
+        "php" => Some(tree_sitter_php::LANGUAGE_PHP.into()),
         _ => None,
     }
 }
@@ -75,10 +77,10 @@ pub fn parse_children_with_shared(
 }
 
 fn is_inert_container(node: Node, framework: &FrameworkDef) -> bool {
-    matches!(
-        (framework.language.as_str(), node.kind()),
-        ("ruby", "module")
-    )
+    framework
+        .inheritance
+        .as_ref()
+        .is_some_and(|inh| inh.inert_containers.iter().any(|k| k == node.kind()))
 }
 
 fn try_match_node(
@@ -358,10 +360,86 @@ fn try_match_marker_node(
                     return Some(result);
                 }
             }
+            "annotation" => {
+                if let Some(result) = try_match_annotation_marker(node, source, marker, framework, shared) {
+                    return Some(result);
+                }
+            }
             _ => {}
         }
     }
     None
+}
+
+fn try_match_annotation_marker(
+    node: Node,
+    source: &str,
+    marker: &crate::parse::registry::MarkerDef,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Option<SpecNode> {
+    let ast_kinds = framework.ast_kinds.as_ref()?;
+    let target_kind = match marker.applies_to.as_str() {
+        "function" | "method" => ast_kinds.method.as_deref().or(ast_kinds.function.as_deref())?,
+        "class" => ast_kinds.class.as_deref()?,
+        _ => return None,
+    };
+
+    if node.kind() != target_kind {
+        return None;
+    }
+
+    let annotation_name = marker.marker_name.as_deref()?;
+    if !has_annotation(node, source, annotation_name) {
+        return None;
+    }
+
+    let name_node = node.child_by_field_name("name")?;
+    let name = node_text(name_node, source)?;
+    let normalized = normalize_name(&name, framework);
+
+    match marker.creates.as_str() {
+        "spec" => Some(SpecNode {
+            name: normalized,
+            kind: SpecKind::Spec,
+            children: vec![],
+            line: node.start_position().row + 1,
+            parameterized: detect_parameterization(node, source, framework),
+        }),
+        "group" => {
+            let mut children = inherited_specs(node, source, framework, shared);
+            if let Some(body) = find_type_body(node, framework) {
+                children.extend(parse_children_with_shared(body, source, framework, shared));
+            }
+            Some(SpecNode {
+                name: normalized,
+                kind: SpecKind::Group,
+                children,
+                line: node.start_position().row + 1,
+                parameterized: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn has_annotation(node: Node, source: &str, name: &str) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "modifiers" {
+            let mut mc = child.walk();
+            for modifier in child.children(&mut mc) {
+                if modifier.kind() == "marker_annotation" || modifier.kind() == "annotation" {
+                    let text = node_text(modifier, source).unwrap_or_default();
+                    let annotation_name = text.strip_prefix('@').unwrap_or(&text);
+                    if annotation_name == name || annotation_name.ends_with(&format!(".{name}")) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 fn try_match_attribute_marker(
@@ -472,18 +550,11 @@ fn try_match_name_pattern_marker(
     framework: &FrameworkDef,
     shared: Option<&SharedExampleRegistry>,
 ) -> Option<SpecNode> {
+    let ast_kinds = framework.ast_kinds.as_ref();
     let target_kind = match marker.applies_to.as_str() {
-        "function" | "method" => match framework.language.as_str() {
-            "ruby" => "method",
-            "python" => "function_definition",
-            "go" => "function_declaration",
-            _ => return None,
-        },
-        "class" => match framework.language.as_str() {
-            "ruby" => "class",
-            "python" => "class_definition",
-            _ => return None,
-        },
+        "function" => ast_kinds.and_then(|k| k.function.as_deref())?,
+        "method" => ast_kinds.and_then(|k| k.method.as_deref().or(k.function.as_deref()))?,
+        "class" => ast_kinds.and_then(|k| k.class.as_deref())?,
         _ => return None,
     };
 
@@ -807,46 +878,12 @@ fn inherited_specs(
     shared: Option<&SharedExampleRegistry>,
 ) -> Vec<SpecNode> {
     let Some(registry) = shared else { return vec![] };
-
-    match framework.language.as_str() {
-        "python" => python_inherited(node, source, registry),
-        "ruby" => ruby_included(node, source, registry),
-        _ => vec![],
-    }
-}
-
-fn python_inherited(
-    node: Node,
-    source: &str,
-    registry: &SharedExampleRegistry,
-) -> Vec<SpecNode> {
-    let refs = crate::parse::shared::python_base_refs(node, source);
-    let mut specs = Vec::new();
-    for r in refs {
-        let resolved = registry.resolve_type(&r);
-        if !resolved.is_empty() {
-            specs.extend(resolved);
-            continue;
-        }
-        if let Some(tail) = r.rsplit('.').next()
-            && tail != r
-        {
-            specs.extend(registry.resolve_type(tail));
-        }
-    }
-    specs
-}
-
-fn ruby_included(
-    node: Node,
-    source: &str,
-    registry: &SharedExampleRegistry,
-) -> Vec<SpecNode> {
-    let mut cursor = node.walk();
-    let Some(body) = node.children(&mut cursor).find(|c| c.kind() == "body_statement") else {
+    let Some(inheritance) = &framework.inheritance else { return vec![] };
+    if !inheritance.enabled {
         return vec![];
-    };
-    let refs = crate::parse::shared::ruby_include_refs(body, source);
+    }
+
+    let refs = collect_refs(node, source, framework, inheritance);
     let mut specs = Vec::new();
     for r in refs {
         let resolved = registry.resolve_type(&r);
@@ -854,18 +891,99 @@ fn ruby_included(
             specs.extend(resolved);
             continue;
         }
-        if let Some(tail) = r.rsplit("::").next()
-            && tail != r
-        {
-            specs.extend(registry.resolve_type(tail));
+        for sep in [".", "::"] {
+            if let Some(tail) = r.rsplit(sep).next()
+                && tail != r
+            {
+                let tail_resolved = registry.resolve_type(tail);
+                if !tail_resolved.is_empty() {
+                    specs.extend(tail_resolved);
+                    break;
+                }
+            }
         }
     }
     specs
+}
+
+fn collect_refs(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+    inheritance: &crate::parse::registry::InheritanceDef,
+) -> Vec<String> {
+    let mut refs = Vec::new();
+    for det in &inheritance.ref_detection {
+        match det.strategy.as_str() {
+            "superclass_args" => {
+                let default_containers = ["argument_list", "superclasses", "base_clause"];
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    let matches_container = if det.container_kinds.is_empty() {
+                        default_containers.contains(&child.kind())
+                    } else {
+                        det.container_kinds.iter().any(|k| k == child.kind())
+                    };
+                    if matches_container {
+                        let mut inner = child.walk();
+                        for arg in child.children(&mut inner) {
+                            if det.arg_kinds.iter().any(|k| k == arg.kind())
+                                && let Some(text) = node_text(arg, source)
+                            {
+                                refs.push(text);
+                            }
+                        }
+                    }
+                }
+            }
+            "method_call" => {
+                let body = find_type_body(node, framework);
+                let Some(body) = body else { continue };
+                let mut body_cursor = body.walk();
+                for child in body.children(&mut body_cursor) {
+                    if child.kind() != "call" && child.kind() != "call_expression" {
+                        continue;
+                    }
+                    let Some(method) = extract_method_name(child, source) else { continue };
+                    if !det.method_names.iter().any(|m| m == &method) {
+                        continue;
+                    }
+                    let Some(args) = find_arguments(child) else { continue };
+                    let mut arg_cursor = args.walk();
+                    for arg in args.children(&mut arg_cursor) {
+                        if det.arg_kinds.iter().any(|k| k == arg.kind())
+                            && let Some(name) = node_text(arg, source)
+                        {
+                            refs.push(name);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    refs
+}
+
+fn find_type_body<'a>(node: Node<'a>, framework: &FrameworkDef) -> Option<Node<'a>> {
+    let ast = framework.ast_kinds.as_ref()?;
+    if let Some(field) = &ast.body_field
+        && let Some(body) = node.child_by_field_name(field.as_str())
+    {
+        return Some(body);
+    }
+    if let Some(child_kind) = &ast.body_child {
+        let mut cursor = node.walk();
+        return node.children(&mut cursor).find(|c| c.kind() == child_kind.as_str());
+    }
+    node.child_by_field_name("body")
 }
 
 fn matches_pattern(name: &str, pattern: &str) -> bool {
     if let Some(prefix) = pattern.strip_prefix('^') {
         name.starts_with(prefix)
+    } else if let Some(suffix) = pattern.strip_suffix('$') {
+        name.ends_with(suffix)
     } else {
         name.contains(pattern)
     }
@@ -892,6 +1010,13 @@ fn normalize_name(name: &str, framework: &FrameworkDef) -> String {
 
     for prefix in &norm.strip_prefixes {
         if let Some(stripped) = result.strip_prefix(prefix.as_str()) {
+            result = stripped.to_string();
+            break;
+        }
+    }
+
+    for suffix in &norm.strip_suffixes {
+        if let Some(stripped) = result.strip_suffix(suffix.as_str()) {
             result = stripped.to_string();
             break;
         }
@@ -1583,5 +1708,96 @@ func TestValidate(t *testing.T) {
         let v = tree.root.iter().find(|n| n.name == "Validate").expect("Validate");
         let param = v.parameterized.as_ref().expect("has parameterization");
         assert_eq!(param.case_count, 5, "should sum both slices: 2 + 3");
+    }
+
+    fn phpunit_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "phpunit").expect("phpunit")
+    }
+
+    #[test]
+    fn parse_phpunit_class_and_methods() {
+        let source = "<?php\nclass UserTest extends TestCase {\n    public function testCreate(): void {\n        $this->assertTrue(true);\n    }\n    public function testDelete(): void {\n        $this->assertTrue(true);\n    }\n    public function helperMethod(): void {\n    }\n}\n";
+        let tree = parse_file(source, "tests/UserTest.php", phpunit_framework());
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "phpunit");
+        assert_eq!(tree.root.len(), 1);
+
+        let user = &tree.root[0];
+        assert_eq!(user.name, "User");
+        assert_eq!(user.kind, SpecKind::Group);
+        assert_eq!(user.children.len(), 2, "should find testCreate + testDelete, not helperMethod");
+        assert_eq!(user.children[0].name, "Create");
+        assert_eq!(user.children[1].name, "Delete");
+    }
+
+    #[test]
+    fn parse_phpunit_class_inheritance() {
+        let source = "<?php\nclass BaseTestCase extends TestCase {\n    public function testShared(): void {\n        $this->assertTrue(true);\n    }\n}\n\nclass UserTest extends BaseTestCase {\n    public function testOwn(): void {\n        $this->assertTrue(true);\n    }\n}\n";
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(source, phpunit_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(source, "tests/UserTest.php", phpunit_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+
+        let user = tree.root.iter().find(|n| n.name == "User").expect("UserTest -> User");
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"Shared"), "inherited testShared should appear, got {names:?}");
+        assert!(names.contains(&"Own"));
+    }
+
+    fn junit_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "junit").expect("junit")
+    }
+
+    #[test]
+    fn parse_junit_annotated_methods() {
+        let source = "class UserTest {\n    @Test\n    void testCreate() {\n    }\n    @Test\n    void testDelete() {\n    }\n    void helperMethod() {\n    }\n}\n";
+        let tree = parse_file(source, "tests/UserTest.java", junit_framework());
+        let tree = tree.expect("parsed");
+        assert_eq!(tree.framework, "junit");
+        assert_eq!(tree.root.len(), 1);
+
+        let user = &tree.root[0];
+        assert_eq!(user.name, "User");
+        assert_eq!(user.kind, SpecKind::Group);
+        assert_eq!(user.children.len(), 2, "should find @Test methods only, not helperMethod");
+        assert_eq!(user.children[0].name, "Create");
+        assert_eq!(user.children[1].name, "Delete");
+    }
+
+    #[test]
+    fn parse_junit_class_inheritance() {
+        let source = "class BaseTest {\n    @Test\n    void testShared() {\n    }\n}\n\nclass UserTest extends BaseTest {\n    @Test\n    void testOwn() {\n    }\n}\n";
+        let mut registry = crate::parse::shared::SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(source, junit_framework(), &mut registry);
+
+        let tree = parse_file_with_shared(source, "tests/UserTest.java", junit_framework(), Some(&registry));
+        let tree = tree.expect("parsed");
+
+        let user = tree.root.iter().find(|n| n.name == "User").expect("UserTest -> User");
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"Shared"), "inherited testShared should appear, got {names:?}");
+        assert!(names.contains(&"Own"));
+    }
+
+    #[test]
+    fn parse_junit_nested_class() {
+        let source = "class UserTest {\n    @Test\n    void testCreate() {\n    }\n\n    @Nested\n    class AdminTest {\n        @Test\n        void testAdmin() {\n        }\n    }\n}\n";
+        let tree = parse_file(source, "tests/UserTest.java", junit_framework());
+        let tree = tree.expect("parsed");
+
+        let user = &tree.root[0];
+        assert_eq!(user.name, "User");
+        assert_eq!(user.children.len(), 2);
+
+        let create = &user.children[0];
+        assert_eq!(create.name, "Create");
+        assert_eq!(create.kind, SpecKind::Spec);
+
+        let admin = &user.children[1];
+        assert_eq!(admin.name, "Admin");
+        assert_eq!(admin.kind, SpecKind::Group);
+        assert_eq!(admin.children.len(), 1);
+        assert_eq!(admin.children[0].name, "Admin");
     }
 }

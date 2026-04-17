@@ -43,7 +43,58 @@ pub struct FrameworkDef {
     #[serde(default)]
     pub table_driven: Option<TableDrivenDef>,
     #[serde(default)]
+    pub ast_kinds: Option<AstKindsDef>,
+    #[serde(default)]
+    pub inheritance: Option<InheritanceDef>,
+    #[serde(default)]
     pub handler: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct AstKindsDef {
+    #[serde(default)]
+    pub function: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub class: Option<String>,
+    #[serde(default)]
+    pub module: Option<String>,
+    #[serde(default)]
+    pub body_field: Option<String>,
+    #[serde(default)]
+    pub body_child: Option<String>,
+    #[serde(default)]
+    pub name_field: Option<String>,
+    #[serde(default)]
+    pub name_child: Option<String>,
+    #[serde(default)]
+    pub name_child_alt: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct InheritanceDef {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub type_node_kinds: Vec<String>,
+    #[serde(default)]
+    pub inert_containers: Vec<String>,
+    #[serde(default)]
+    pub scan_globs: Vec<String>,
+    #[serde(default)]
+    pub ref_detection: Vec<RefDetectionDef>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RefDetectionDef {
+    pub strategy: String,
+    #[serde(default)]
+    pub container_kinds: Vec<String>,
+    #[serde(default)]
+    pub method_names: Vec<String>,
+    #[serde(default)]
+    pub arg_kinds: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,6 +155,8 @@ pub struct MarkerDef {
 pub struct NormalizationDef {
     #[serde(default)]
     pub strip_prefixes: Vec<String>,
+    #[serde(default)]
+    pub strip_suffixes: Vec<String>,
     #[serde(default)]
     pub underscore_to_space: bool,
     #[serde(default)]

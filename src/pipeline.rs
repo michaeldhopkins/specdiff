@@ -55,12 +55,15 @@ impl FileSource for DirectorySource {
 
     fn list_shared_files_all(&self) -> Vec<String> {
         let mut all = std::collections::BTreeSet::new();
-        let languages: &[&str] = &["python", "ruby"];
-        for lang in languages {
-            for glob_str in type_scan_globs(lang) {
-                if let Ok(pat) = glob::Pattern::new(glob_str) {
-                    for dir in [&self.base, &self.head] {
-                        collect_all_files_recursive(dir, dir, &pat, &mut all);
+        for fw in parse::registry::all_frameworks() {
+            if let Some(inh) = &fw.inheritance
+                && inh.enabled
+            {
+                for glob_str in &inh.scan_globs {
+                    if let Ok(pat) = glob::Pattern::new(glob_str) {
+                        for dir in [&self.base, &self.head] {
+                            collect_all_files_recursive(dir, dir, &pat, &mut all);
+                        }
                     }
                 }
             }
@@ -119,12 +122,15 @@ impl FileSource for VcsSource<'_> {
 
     fn list_shared_files_all(&self) -> Vec<String> {
         let mut all = std::collections::BTreeSet::new();
-        let languages: &[&str] = &["python", "ruby"];
-        for lang in languages {
-            for glob in type_scan_globs(lang) {
-                if let Ok(files) = self.vcs.files_matching(glob) {
-                    for f in files {
-                        all.insert(f.to_string_lossy().into_owned());
+        for fw in parse::registry::all_frameworks() {
+            if let Some(inh) = &fw.inheritance
+                && inh.enabled
+            {
+                for glob in &inh.scan_globs {
+                    if let Ok(files) = self.vcs.files_matching(glob) {
+                        for f in files {
+                            all.insert(f.to_string_lossy().into_owned());
+                        }
                     }
                 }
             }
@@ -186,23 +192,6 @@ pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
     Ok(file_diffs)
 }
 
-fn type_scan_globs(language: &str) -> &'static [&'static str] {
-    match language {
-        "ruby" => &[
-            "test/**/*.rb",
-            "spec/**/*.rb",
-            "lib/**/*.rb",
-        ],
-        "python" => &[
-            "tests/**/*.py",
-            "test/**/*.py",
-            "conftest.py",
-            "**/conftest.py",
-        ],
-        _ => &[],
-    }
-}
-
 fn build_shared_registry(
     source: &dyn FileSource,
     all_paths: &[String],
@@ -222,7 +211,7 @@ fn build_shared_registry(
         }
 
         let has_shared_definitions = fw.shared.as_ref().is_some_and(|s| !s.definition.is_empty());
-        let scans_types = matches!(fw.language.as_str(), "python" | "ruby");
+        let scans_types = fw.inheritance.as_ref().is_some_and(|i| i.enabled);
 
         if !has_shared_definitions && !scans_types {
             continue;
@@ -244,8 +233,10 @@ fn build_shared_registry(
             }
         }
 
-        if scans_types {
-            for glob_pattern in type_scan_globs(fw.language.as_str()) {
+        if let Some(inh) = &fw.inheritance
+            && inh.enabled
+        {
+            for glob_pattern in &inh.scan_globs {
                 if let Ok(extra_paths) = source.list_shared_files(glob_pattern) {
                     for p in extra_paths {
                         scan_paths.insert((p, fw.name.as_str()));

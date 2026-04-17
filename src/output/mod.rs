@@ -25,7 +25,7 @@ pub fn format_tree(file_diffs: &[FileDiff], changed_only: bool, color: bool) -> 
         if use_color {
             let _ = write!(output, "{BOLD}");
         }
-        let _ = write!(output, "spec-diff");
+        let _ = write!(output, "specdiff");
         if use_color {
             let _ = write!(output, "{RESET}");
         }
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn tree_format_shows_stats_header() {
         let output = format_tree(&sample_file_diffs(), false, false);
-        assert!(output.contains("spec-diff"), "should show header");
+        assert!(output.contains("specdiff"), "should show header");
         assert!(output.contains("+1"), "should show added count (leaf specs only)");
     }
 

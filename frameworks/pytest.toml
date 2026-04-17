@@ -14,6 +14,12 @@ include_globs = [
 ]
 require_ast_confirmation = false
 
+[framework.ast_kinds]
+function = "function_definition"
+class = "class_definition"
+body_field = "body"
+name_field = "name"
+
 [[framework.marker]]
 marker_type = "name_pattern"
 pattern = "^Test"
@@ -50,14 +56,12 @@ strip_suffixes = ["_test"]
 separator = "::"
 strip_extension = true
 
-[framework.shared]
-definition_globs = ["**/conftest.py"]
-scan_spec_files_for_definitions = false
+[framework.inheritance]
+enabled = true
+type_node_kinds = ["class_definition"]
+inert_containers = []
+scan_globs = ["tests/**/*.py", "test/**/*.py", "conftest.py", "**/conftest.py"]
 
-[[framework.shared.definition]]
-ast_type = "class_definition"
-method_names = []
-name_source = "identifier"
-body = "class_body"
-detection_strategy = "inheritance"
-handler = "pytest_inheritance"
+[[framework.inheritance.ref_detection]]
+strategy = "superclass_args"
+arg_kinds = ["identifier", "attribute"]

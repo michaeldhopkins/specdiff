@@ -1,18 +1,18 @@
 [package]
 name = "spec-diff"
-version = "0.14.2"
+version = "0.16.0"
 edition = "2024"
 rust-version = "1.91"
 license = "MIT OR Apache-2.0"
 description = "Show test outline changes on a branch"
-repository = "https://github.com/michaeldhopkins/spec-diff"
-homepage = "https://github.com/michaeldhopkins/spec-diff"
+repository = "https://github.com/michaeldhopkins/specdiff"
+homepage = "https://github.com/michaeldhopkins/specdiff"
 categories = ["command-line-utilities", "development-tools::testing"]
 keywords = ["test", "diff", "tree-sitter", "tui"]
 include = ["src/**", "frameworks/**", "examples/**", "build.rs", "LICENSE*", "README.md", "Cargo.lock"]
 
 [[bin]]
-name = "spec-diff"
+name = "specdiff"
 path = "src/main.rs"
 
 [lib]
@@ -36,6 +36,8 @@ tree-sitter-elixir = "0.3"
 tree-sitter-go = "0.25"
 tree-sitter-javascript = "0.25"
 tree-sitter-python = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-php = "0.24"
 tree-sitter-ruby = "0.23"
 tree-sitter-rust = "0.24"
 vcs-runner = "0.12"

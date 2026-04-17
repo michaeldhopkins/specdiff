@@ -13,6 +13,15 @@ include_globs = [
 exclude_globs = ["test/test_helper.rb"]
 require_ast_confirmation = false
 
+[framework.ast_kinds]
+function = "method"
+method = "method"
+class = "class"
+module = "module"
+body_child = "body_statement"
+name_child = "constant"
+name_child_alt = "scope_resolution"
+
 [[framework.marker]]
 marker_type = "name_pattern"
 pattern = "^Test"
@@ -47,3 +56,14 @@ strip_prefixes = ["test/"]
 strip_suffixes = ["_test"]
 separator = "::"
 strip_extension = true
+
+[framework.inheritance]
+enabled = true
+type_node_kinds = ["class", "module"]
+inert_containers = ["module"]
+scan_globs = ["test/**/*.rb", "spec/**/*.rb", "lib/**/*.rb"]
+
+[[framework.inheritance.ref_detection]]
+strategy = "method_call"
+method_names = ["include", "extend"]
+arg_kinds = ["constant", "scope_resolution"]

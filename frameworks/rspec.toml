@@ -10,6 +10,15 @@ include_globs = ["spec/**/*_spec.rb"]
 exclude_globs = ["spec/spec_helper.rb", "spec/rails_helper.rb"]
 require_ast_confirmation = false
 
+[framework.ast_kinds]
+function = "method"
+method = "method"
+class = "class"
+module = "module"
+body_child = "body_statement"
+name_child = "constant"
+name_child_alt = "scope_resolution"
+
 [[framework.group]]
 ast_type = "call"
 method_names = ["describe", "context", "feature"]

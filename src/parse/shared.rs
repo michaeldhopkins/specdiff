@@ -100,15 +100,14 @@ fn scan_types(
     framework: &FrameworkDef,
     registry: &mut SharedExampleRegistry,
 ) {
-    let type_node_kinds: &[&str] = match framework.language.as_str() {
-        "python" => &["class_definition"],
-        "ruby" => &["class", "module"],
-        _ => return,
-    };
+    let Some(inheritance) = &framework.inheritance else { return };
+    if !inheritance.enabled || inheritance.type_node_kinds.is_empty() {
+        return;
+    }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if type_node_kinds.contains(&child.kind())
+        if inheritance.type_node_kinds.iter().any(|k| k == child.kind())
             && let Some(def) = extract_type_definition(child, source, framework)
         {
             let names = type_registration_names(&def.name);
@@ -138,33 +137,40 @@ fn extract_type_definition(
     source: &str,
     framework: &FrameworkDef,
 ) -> Option<TypeDefinition> {
-    let name_node = match framework.language.as_str() {
-        "python" => node.child_by_field_name("name")?,
-        "ruby" => {
-            let mut cursor = node.walk();
-            node.children(&mut cursor)
-                .find(|c| c.kind() == "constant" || c.kind() == "scope_resolution")?
-        }
-        _ => return None,
+    let ast = framework.ast_kinds.as_ref()?;
+
+    let name_node = if let Some(field) = &ast.name_field
+        && let Some(n) = node.child_by_field_name(field.as_str())
+    {
+        n
+    } else {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).find(|c| {
+            ast.name_child.as_deref().is_some_and(|k| k == c.kind())
+                || ast.name_child_alt.as_deref().is_some_and(|k| k == c.kind())
+        })?
     };
     let full_name = crate::parse::engine::node_text(name_node, source)?;
 
-    let body = match framework.language.as_str() {
-        "python" => node.child_by_field_name("body")?,
-        "ruby" => {
-            let mut cursor = node.walk();
-            node.children(&mut cursor).find(|c| c.kind() == "body_statement")?
-        }
-        _ => return None,
+    let body = if let Some(field) = &ast.body_field
+        && let Some(b) = node.child_by_field_name(field.as_str())
+    {
+        b
+    } else if let Some(child_kind) = &ast.body_child {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).find(|c| c.kind() == child_kind.as_str())?
+    } else {
+        node.child_by_field_name("body")?
     };
 
     let specs = crate::parse::engine::parse_children(body, source, framework);
 
-    let refs = match framework.language.as_str() {
-        "python" => python_base_refs(node, source),
-        "ruby" => ruby_include_refs(body, source),
-        _ => vec![],
-    };
+    let refs = framework
+        .inheritance
+        .as_ref()
+        .filter(|inh| inh.enabled)
+        .map(|inh| collect_type_refs(node, body, source, framework, inh))
+        .unwrap_or_default();
 
     if specs.is_empty() && refs.is_empty() {
         return None;
@@ -173,55 +179,71 @@ fn extract_type_definition(
     Some(TypeDefinition { name: full_name, specs, refs })
 }
 
+fn collect_type_refs(
+    node: tree_sitter::Node,
+    body: tree_sitter::Node,
+    source: &str,
+    _framework: &FrameworkDef,
+    inheritance: &crate::parse::registry::InheritanceDef,
+) -> Vec<String> {
+    let mut refs = Vec::new();
+    for det in &inheritance.ref_detection {
+        match det.strategy.as_str() {
+            "superclass_args" => {
+                let default_containers = ["argument_list", "superclasses", "base_clause"];
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    let matches_container = if det.container_kinds.is_empty() {
+                        default_containers.contains(&child.kind())
+                    } else {
+                        det.container_kinds.iter().any(|k| k == child.kind())
+                    };
+                    if matches_container {
+                        let mut inner = child.walk();
+                        for arg in child.children(&mut inner) {
+                            if det.arg_kinds.iter().any(|k| k == arg.kind())
+                                && let Some(text) = crate::parse::engine::node_text(arg, source)
+                            {
+                                refs.push(text);
+                            }
+                        }
+                    }
+                }
+            }
+            "method_call" => {
+                let mut body_cursor = body.walk();
+                for child in body.children(&mut body_cursor) {
+                    if child.kind() != "call" && child.kind() != "call_expression" {
+                        continue;
+                    }
+                    let Some(method) = crate::parse::engine::extract_method_name(child, source)
+                    else {
+                        continue;
+                    };
+                    if !det.method_names.iter().any(|m| m == &method) {
+                        continue;
+                    }
+                    let Some(args) = find_arguments_in_call(child) else { continue };
+                    let mut arg_cursor = args.walk();
+                    for arg in args.children(&mut arg_cursor) {
+                        if det.arg_kinds.iter().any(|k| k == arg.kind())
+                            && let Some(name) = crate::parse::engine::node_text(arg, source)
+                        {
+                            refs.push(name);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    refs
+}
+
 struct TypeDefinition {
     pub name: String,
     pub specs: Vec<SpecNode>,
     pub refs: Vec<String>,
-}
-
-pub(crate) fn python_base_refs(class_node: tree_sitter::Node, source: &str) -> Vec<String> {
-    let mut refs = Vec::new();
-    let mut cursor = class_node.walk();
-    for child in class_node.children(&mut cursor) {
-        if child.kind() == "argument_list" {
-            let mut inner = child.walk();
-            for arg in child.children(&mut inner) {
-                match arg.kind() {
-                    "identifier" | "attribute" => {
-                        if let Some(text) = crate::parse::engine::node_text(arg, source) {
-                            refs.push(text);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    refs
-}
-
-pub(crate) fn ruby_include_refs(body: tree_sitter::Node, source: &str) -> Vec<String> {
-    let mut refs = Vec::new();
-    let mut body_cursor = body.walk();
-    for child in body.children(&mut body_cursor) {
-        if child.kind() != "call" {
-            continue;
-        }
-        let Some(method) = crate::parse::engine::extract_method_name(child, source) else { continue };
-        if method != "include" && method != "extend" {
-            continue;
-        }
-        let Some(args) = find_arguments_in_call(child) else { continue };
-        let mut arg_cursor = args.walk();
-        for arg in args.children(&mut arg_cursor) {
-            if (arg.kind() == "constant" || arg.kind() == "scope_resolution")
-                && let Some(name) = crate::parse::engine::node_text(arg, source)
-            {
-                refs.push(name);
-            }
-        }
-    }
-    refs
 }
 
 fn find_arguments_in_call(node: tree_sitter::Node) -> Option<tree_sitter::Node> {

@@ -94,6 +94,17 @@ impl Vcs for JjVcs {
             .collect())
     }
 
+    fn default_base_rev(&self) -> String {
+        for candidate in ["main", "master"] {
+            if run_jj(&self.root, &["log", "-r", candidate, "--no-graph", "--limit", "1"])
+                .is_ok()
+            {
+                return candidate.to_string();
+            }
+        }
+        "trunk()".to_string()
+    }
+
     fn default_head_rev(&self) -> &str {
         "@"
     }

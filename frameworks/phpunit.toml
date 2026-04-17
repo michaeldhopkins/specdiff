@@ -1,0 +1,56 @@
+[[framework]]
+name = "phpunit"
+language = "php"
+tree_sitter_crate = "tree-sitter-php"
+description = "PHPUnit — PHP testing framework"
+
+[framework.files]
+extensions = [".php"]
+include_globs = [
+    "tests/**/*Test.php",
+    "tests/**/*_test.php",
+    "test/**/*Test.php",
+]
+require_ast_confirmation = false
+
+[framework.ast_kinds]
+function = "method_declaration"
+method = "method_declaration"
+class = "class_declaration"
+body_field = "body"
+body_child = "declaration_list"
+name_field = "name"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "Test$"
+applies_to = "class"
+creates = "group"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^test"
+applies_to = "method"
+creates = "spec"
+
+[framework.normalization]
+strip_prefixes = ["test"]
+strip_suffixes = ["Test"]
+underscore_to_space = false
+
+[framework.path_grouping]
+strip_prefixes = ["tests/", "test/"]
+strip_suffixes = ["Test", "_test"]
+separator = "::"
+strip_extension = true
+
+[framework.inheritance]
+enabled = true
+type_node_kinds = ["class_declaration"]
+inert_containers = []
+scan_globs = ["tests/**/*.php", "test/**/*.php"]
+
+[[framework.inheritance.ref_detection]]
+strategy = "superclass_args"
+container_kinds = ["base_clause"]
+arg_kinds = ["name", "qualified_name"]

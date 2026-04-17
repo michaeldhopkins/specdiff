@@ -9,6 +9,10 @@ extensions = [".exs"]
 include_globs = ["test/**/*_test.exs"]
 require_ast_confirmation = false
 
+[framework.ast_kinds]
+function = "call"
+body_child = "do_block"
+
 [[framework.group]]
 ast_type = "call"
 method_names = ["describe"]
