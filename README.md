@@ -2,18 +2,20 @@
 
 Show how the test outline of a project has changed on a branch.
 
-Parses test files from two VCS revisions using tree-sitter, normalizes them into a language-agnostic tree, diffs the trees with rename detection, and presents the structural diff as CLI output or a real-time TUI.
+<img width="703" height="699" alt="Screenshot 2026-04-17 at 20 39 40" src="https://github.com/user-attachments/assets/3772e1d0-100a-42b0-975e-734909d44d6a" />
+<img width="372" height="657" alt="Screenshot 2026-04-17 at 20 40 10" src="https://github.com/user-attachments/assets/2ff704ea-d0fb-44fd-ab4d-60788893d1ec" />
+
 
 ## Features
 
-- **Multi-framework support**: RSpec, Minitest, pytest, Jest/Vitest/Mocha, Go testing, Rust #[test], ExUnit — defined declaratively in TOML
-- **Git and Jujutsu (jj)** support with automatic backend detection
-- Tree-sitter parsing for accurate, syntax-aware test discovery
+- RSpec, Minitest, pytest, Jest/Vitest/Mocha, Go testing, Rust #[test], ExUnit. Let me know if you'd like another language/framework supported.
+- Git and Jujutsu support with automatic backend detection
+- Tree-sitter parsing for syntax-aware test discovery
 - Shared example resolution (RSpec shared_examples, pytest conftest)
 - Rename detection with similarity scoring
 - Parameterized test awareness (rstest, pytest.mark.parametrize, Jest .each)
 - Output formats: colored tree (default), JSON, compact
-- Watch mode TUI with live refresh on file changes
+- TUI mode (default), --print
 
 ## Requirements
 
