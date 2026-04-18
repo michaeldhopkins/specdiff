@@ -331,7 +331,24 @@ fn run_event_loop(
                     state.needs_redraw = true;
                 }
             }
-            Ok(AppEvent::Tick) => {}
+            Ok(AppEvent::Tick) => {
+                if let WatchMode::Vcs { vcs, base_rev, head_rev } = mode {
+                    let fresh = vcs.merge_base(base_rev, head_rev)
+                        .unwrap_or_else(|_| base_rev.clone());
+                    let stale = state.cached_merge_base.as_ref() != Some(&fresh);
+                    if stale {
+                        state.cached_merge_base = None;
+                        let reg = state.shared_registry.clone();
+                        let diffs = if let Some(reg) = &reg {
+                            mode.compute_diffs_with_registry(state, cli, reg)?
+                        } else {
+                            mode.compute_diffs_fast(state, cli)?
+                        };
+                        state.file_diffs = diffs;
+                        state.needs_redraw = true;
+                    }
+                }
+            }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => break,
         }
@@ -461,5 +478,32 @@ mod tests {
         assert_eq!(prev_section(20, &offsets), 10);
         assert_eq!(prev_section(10, &offsets), 0);
         assert_eq!(prev_section(0, &offsets), 0);
+    }
+
+    #[test]
+    fn merge_base_cache_detects_staleness() {
+        let mut state = AppState {
+            file_diffs: vec![],
+            scroll: 0,
+            section_offsets: vec![],
+            max_scroll: 0,
+            changed_only: false,
+            filter: None,
+            quit: false,
+            needs_redraw: false,
+            cached_merge_base: Some("abc123".to_string()),
+            merge_base_time: std::time::Instant::now(),
+            shared_registry: None,
+        };
+
+        assert_eq!(state.cached_merge_base.as_deref(), Some("abc123"));
+
+        let fresh = "def456".to_string();
+        let stale = state.cached_merge_base.as_ref() != Some(&fresh);
+        assert!(stale, "different merge-base should be detected as stale");
+
+        state.cached_merge_base = Some(fresh.clone());
+        let stale = state.cached_merge_base.as_ref() != Some(&fresh);
+        assert!(!stale, "same merge-base should not be stale");
     }
 }
