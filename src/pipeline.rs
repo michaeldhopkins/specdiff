@@ -5,6 +5,7 @@ use crate::parse;
 use crate::parse::shared::SharedExampleRegistry;
 use crate::vcs;
 use anyhow::Result;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 pub trait FileSource {
@@ -180,6 +181,12 @@ pub fn diff_files_with_registry(
     diff_with_registries(source, &all_paths, cli, registry, registry)
 }
 
+struct FileContents {
+    rel_path: String,
+    base: Option<String>,
+    head: Option<String>,
+}
+
 fn diff_with_registries(
     source: &dyn FileSource,
     all_paths: &[String],
@@ -187,43 +194,51 @@ fn diff_with_registries(
     base_registry: &SharedExampleRegistry,
     head_registry: &SharedExampleRegistry,
 ) -> Result<Vec<FileDiff>> {
+    let contents: Vec<FileContents> = all_paths
+        .iter()
+        .filter(|p| !parse::registry::frameworks_for_file(Path::new(p.as_str())).is_empty())
+        .map(|rel_path| FileContents {
+            rel_path: rel_path.clone(),
+            base: source.read_base(rel_path),
+            head: source.read_head(rel_path),
+        })
+        .collect();
 
-    let mut file_diffs = Vec::new();
+    let forced_framework = cli.framework.as_deref();
+    let base_shared = if base_registry.is_empty() { None } else { Some(base_registry) };
+    let head_shared = if head_registry.is_empty() { None } else { Some(head_registry) };
 
-    for rel_path in all_paths {
-        let frameworks = parse::registry::frameworks_for_file(Path::new(rel_path));
-        let framework = if let Some(name) = &cli.framework {
-            frameworks.iter().find(|f| f.name == *name).copied()
+    let use_parallel = contents.len() >= 4;
+
+    let process = |fc: &FileContents| -> Option<FileDiff> {
+        let frameworks = parse::registry::frameworks_for_file(Path::new(&fc.rel_path));
+        let framework = if let Some(name) = forced_framework {
+            frameworks.iter().find(|f| f.name == name).copied()
         } else {
             frameworks.first().copied()
-        };
+        }?;
 
-        let Some(framework) = framework else {
-            continue;
-        };
-
-        let base_shared = if base_registry.is_empty() { None } else { Some(base_registry) };
-        let head_shared = if head_registry.is_empty() { None } else { Some(head_registry) };
-
-        let base_source = source.read_base(rel_path);
-        let head_source = source.read_head(rel_path);
-
-        let base_tree = base_source
-            .as_deref()
-            .and_then(|s| parse::engine::parse_file_with_shared(s, rel_path, framework, base_shared));
-        let head_tree = head_source
-            .as_deref()
-            .and_then(|s| parse::engine::parse_file_with_shared(s, rel_path, framework, head_shared));
+        let base_tree = fc.base.as_deref()
+            .and_then(|s| parse::engine::parse_file_with_shared(s, &fc.rel_path, framework, base_shared));
+        let head_tree = fc.head.as_deref()
+            .and_then(|s| parse::engine::parse_file_with_shared(s, &fc.rel_path, framework, head_shared));
 
         let base_nodes = base_tree.map(|t| t.root).unwrap_or_default();
         let head_nodes = head_tree.map(|t| t.root).unwrap_or_default();
 
         let nodes = diff::diff_spec_nodes(&base_nodes, &head_nodes);
-        if !nodes.is_empty() {
-            let display_path = parse::registry::normalize_file_path(rel_path, framework);
-            file_diffs.push(FileDiff { path: display_path, nodes });
+        if nodes.is_empty() {
+            return None;
         }
-    }
+        let display_path = parse::registry::normalize_file_path(&fc.rel_path, framework);
+        Some(FileDiff { path: display_path, nodes })
+    };
+
+    let file_diffs: Vec<FileDiff> = if use_parallel {
+        contents.par_iter().filter_map(process).collect()
+    } else {
+        contents.iter().filter_map(process).collect()
+    };
 
     Ok(file_diffs)
 }
@@ -527,5 +542,45 @@ mod tests {
         let cli = default_cli();
         let diffs = diff_files(&source, &cli).expect("diff_files");
         assert!(!diffs.is_empty(), "should produce diffs even without shared scan");
+    }
+
+    #[test]
+    fn parallel_diff_produces_same_results_as_serial() {
+        let source = MockSource {
+            files: vec![
+                ("spec/models/user_spec.rb".into(), "RSpec.describe User do\n  it \"a\" do\n  end\nend\n".into()),
+                ("spec/models/post_spec.rb".into(), "RSpec.describe Post do\n  it \"b\" do\n  end\nend\n".into()),
+                ("spec/models/tag_spec.rb".into(), "RSpec.describe Tag do\n  it \"c\" do\n  end\nend\n".into()),
+                ("spec/models/comment_spec.rb".into(), "RSpec.describe Comment do\n  it \"d\" do\n  end\nend\n".into()),
+                ("spec/models/like_spec.rb".into(), "RSpec.describe Like do\n  it \"e\" do\n  end\nend\n".into()),
+            ],
+        };
+        let cli = default_cli();
+        let diffs = diff_files(&source, &cli).expect("diff_files");
+        assert_eq!(diffs.len(), 5, "should diff all 5 files");
+        let names: Vec<&str> = diffs.iter().map(|d| d.path.as_str()).collect();
+        assert!(names.contains(&"models::user"));
+        assert!(names.contains(&"models::post"));
+        assert!(names.contains(&"models::tag"));
+        assert!(names.contains(&"models::comment"));
+        assert!(names.contains(&"models::like"));
+    }
+
+    #[test]
+    fn diff_files_fast_skips_shared_resolution() {
+        let source = MockSource {
+            files: vec![(
+                "spec/models/user_spec.rb".into(),
+                "RSpec.describe User do\n  it_behaves_like \"timestamped\"\n  it \"works\" do\n  end\nend\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let diffs = diff_files_fast(&source, &cli).expect("fast");
+        assert_eq!(diffs.len(), 1);
+        let user = &diffs[0];
+        let has_placeholder = user.nodes.iter().any(|n| {
+            n.children.iter().any(|c| c.name.contains('\u{2026}'))
+        });
+        assert!(has_placeholder, "fast path should produce placeholder for shared inclusion");
     }
 }

@@ -29,6 +29,7 @@ struct AppState {
     filter: Option<String>,
     quit: bool,
     needs_redraw: bool,
+    max_scroll: usize,
     shared_registry: Option<crate::parse::shared::SharedExampleRegistry>,
 }
 
@@ -165,6 +166,7 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
         file_diffs,
         scroll: 0,
         section_offsets: vec![],
+        max_scroll: 0,
         changed_only: cli.changed_only,
         filter: cli.filter.clone(),
         quit: false,
@@ -273,11 +275,13 @@ fn run_event_loop(
             } else {
                 &state.file_diffs
             };
-            let mut offsets = vec![];
+            let mut result = render::RenderResult { section_offsets: vec![], max_scroll: 0 };
             terminal.draw(|frame| {
-                offsets = render::render(frame, diffs, state.scroll, state.changed_only);
+                result = render::render(frame, diffs, state.scroll, state.changed_only);
             })?;
-            state.section_offsets = offsets;
+            state.section_offsets = result.section_offsets;
+            state.max_scroll = result.max_scroll;
+            state.scroll = state.scroll.min(state.max_scroll);
             state.needs_redraw = false;
         }
 
@@ -288,7 +292,7 @@ fn run_event_loop(
         }
 
         match rx.try_recv() {
-            Ok(AppEvent::FileChanged | AppEvent::Tick) => {
+            Ok(AppEvent::FileChanged) => {
                 let diffs = if let Some(reg) = &state.shared_registry {
                     mode.compute_diffs_with_registry(cli, reg)?
                 } else {
@@ -304,6 +308,7 @@ fn run_event_loop(
                     state.needs_redraw = true;
                 }
             }
+            Ok(AppEvent::Tick) => {}
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => break,
         }
@@ -354,6 +359,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
         }
         _ => {}
     }
+    state.scroll = state.scroll.min(state.max_scroll);
 }
 
 fn next_section(current: usize, offsets: &[usize]) -> usize {

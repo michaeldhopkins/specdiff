@@ -16,6 +16,15 @@ pub fn detect(start: &Path) -> Result<Box<dyn Vcs>> {
 pub trait Vcs {
     fn changed_files(&self, base: &str, head: &str) -> Result<Vec<PathBuf>>;
     fn file_at_revision(&self, path: &Path, rev: &str) -> Result<String>;
+    fn files_at_revision(&self, paths: &[PathBuf], rev: &str) -> Vec<(PathBuf, Option<String>)> {
+        paths
+            .iter()
+            .map(|p| {
+                let content = self.file_at_revision(p, rev).ok();
+                (p.clone(), content)
+            })
+            .collect()
+    }
     fn merge_base(&self, a: &str, b: &str) -> Result<String>;
     fn current_branch(&self) -> Result<Option<String>>;
     fn files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>>;

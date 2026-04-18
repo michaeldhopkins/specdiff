@@ -5,7 +5,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed_only: bool) -> Vec<usize> {
+pub struct RenderResult {
+    pub section_offsets: Vec<usize>,
+    pub max_scroll: usize,
+}
+
+pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed_only: bool) -> RenderResult {
     let area = frame.area();
 
     let chunks = Layout::vertical([
@@ -70,7 +75,7 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
     let footer = Paragraph::new(help);
     frame.render_widget(footer, chunks[2]);
 
-    section_offsets
+    RenderResult { section_offsets, max_scroll }
 }
 
 fn collect_lines(node: &DiffNode, lines: &mut Vec<Line<'_>>, depth: usize, changed_only: bool) {

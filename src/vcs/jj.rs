@@ -1,5 +1,6 @@
 use crate::vcs::Vcs;
 use anyhow::{Context, Result};
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use vcs_runner::{
@@ -103,6 +104,31 @@ impl Vcs for JjVcs {
             }
         }
         "trunk()".to_string()
+    }
+
+    fn files_at_revision(&self, paths: &[PathBuf], rev: &str) -> Vec<(PathBuf, Option<String>)> {
+        if paths.len() < 4 {
+            return paths
+                .iter()
+                .map(|p| (p.clone(), self.file_at_revision(p, rev).ok()))
+                .collect();
+        }
+
+        let root = &self.root;
+        paths
+            .par_iter()
+            .map(|p| {
+                let path_str = p.to_string_lossy();
+                let content = if rev == "WORKDIR" || rev == "@" {
+                    std::fs::read_to_string(root.join(p)).ok()
+                } else {
+                    run_jj(root, &["file", "show", "-r", rev, &path_str])
+                        .ok()
+                        .map(|o| o.stdout_lossy().into_owned())
+                };
+                (p.clone(), content)
+            })
+            .collect()
     }
 
     fn default_head_rev(&self) -> &str {
