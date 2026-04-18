@@ -210,6 +210,11 @@ jobs:
           git tag "v${{ needs.check-version.outputs.version }}"
           git push origin "v${{ needs.check-version.outputs.version }}"
 
+      - uses: taiki-e/install-action@git-cliff
+
+      - name: Generate release notes
+        run: git cliff --latest --strip all > RELEASE_NOTES.md
+
       - name: Generate checksums
         run: |
           cd artifacts
@@ -221,6 +226,7 @@ jobs:
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           name: v${{ needs.check-version.outputs.version }}
+          body_path: RELEASE_NOTES.md
           files: |
             artifacts/*.tar.gz
             artifacts/SHA256SUMS.txt
