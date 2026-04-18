@@ -12,6 +12,21 @@ All of my projects are available in ~/projects. In particular:
 
 Read these projects' code to match their quality bar and patterns.
 
+## Commit style
+
+Every commit message must use a conventional-commit prefix so `git cliff` produces real release notes. `cliff.toml` has `require_conventional = true` — a non-conventional commit will **fail the release workflow** loudly, not silently drop from the changelog.
+
+- `feat:` → Features (minor bump candidate).
+- `fix:` → Bug Fixes (patch).
+- `docs:` → Documentation.
+- `refactor:` → Refactor.
+- `test:` → Testing.
+- `perf:` → Performance.
+- `chore:` / `ci:` / `build:` → Miscellaneous.
+- `!` suffix marks a breaking change: `feat!:`, `fix!:`. Forces a minor bump in 0.x.
+
+Subject ≤ 70 chars. Body explains *why* and lists any breaking migration steps.
+
 ## Pre-Commit Checklist
 
 Before every commit, verify:
@@ -19,8 +34,9 @@ Before every commit, verify:
 2. `cargo clippy --all-targets -- -D warnings` passes
 3. `cargo test` passes
 4. Version bumped in Cargo.toml (patch for fixes, minor for features)
-5. `cargo install --path . --force` run before pushing
-6. All files end with a newline
+5. `cargo check` to regenerate Cargo.lock after version bump
+6. `cargo install --path . --force` run before pushing
+7. All files end with a newline
 
 ## Versioning (Semver)
 
