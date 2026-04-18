@@ -36,7 +36,7 @@ struct AppState {
 enum WatchMode<'a> {
     Vcs {
         vcs: &'a dyn vcs::Vcs,
-        merge_base: String,
+        base_rev: String,
         head_rev: String,
     },
     Directory {
@@ -82,8 +82,10 @@ impl WatchMode<'_> {
 
     fn with_source<T>(&self, f: impl FnOnce(&dyn pipeline::FileSource) -> Result<T>) -> Result<T> {
         match self {
-            WatchMode::Vcs { vcs, merge_base, head_rev } => {
-                let changed = vcs.changed_files(merge_base, head_rev)?;
+            WatchMode::Vcs { vcs, base_rev, head_rev } => {
+                let merge_base = vcs.merge_base(base_rev, head_rev)
+                    .unwrap_or_else(|_| base_rev.clone());
+                let changed = vcs.changed_files(&merge_base, head_rev)?;
                 let test_files: Vec<PathBuf> = changed
                     .into_iter()
                     .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
@@ -91,7 +93,7 @@ impl WatchMode<'_> {
                 let source = VcsSource {
                     vcs: *vcs,
                     files: test_files,
-                    merge_base: merge_base.clone(),
+                    merge_base,
                     head_rev: head_rev.clone(),
                 };
                 f(&source)
@@ -139,12 +141,9 @@ fn run_watch_vcs(cli: &Cli) -> Result<()> {
     let base_rev = cli.base.clone().unwrap_or_else(|| vcs.default_base_rev());
     let head_rev = cli.head.clone().unwrap_or_else(|| vcs.default_head_rev().to_string());
 
-    let merge_base = vcs.merge_base(&base_rev, &head_rev)
-        .unwrap_or_else(|_| base_rev.clone());
-
     let mode = WatchMode::Vcs {
         vcs: vcs.as_ref(),
-        merge_base,
+        base_rev,
         head_rev,
     };
 
