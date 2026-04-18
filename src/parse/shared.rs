@@ -2,7 +2,7 @@ use crate::parse::registry::FrameworkDef;
 use crate::parse::SpecNode;
 use std::collections::HashMap;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SharedExampleRegistry {
     definitions: HashMap<String, Vec<SpecNode>>,
     types: HashMap<String, Vec<SpecNode>>,

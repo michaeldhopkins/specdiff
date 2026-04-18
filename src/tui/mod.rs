@@ -30,6 +30,8 @@ struct AppState {
     quit: bool,
     needs_redraw: bool,
     max_scroll: usize,
+    cached_merge_base: Option<String>,
+    merge_base_time: std::time::Instant,
     shared_registry: Option<crate::parse::shared::SharedExampleRegistry>,
 }
 
@@ -46,28 +48,33 @@ enum WatchMode<'a> {
 }
 
 impl WatchMode<'_> {
-    fn compute_diffs_fast(&self, cli: &Cli) -> Result<Vec<FileDiff>> {
-        self.with_source(|source| pipeline::diff_files_fast(source, cli))
+    fn compute_diffs_fast(&self, state: &mut AppState, cli: &Cli) -> Result<Vec<FileDiff>> {
+        let mb = self.resolve_merge_base(state);
+        self.with_source(mb.as_deref(), |source| pipeline::diff_files_fast(source, cli))
     }
 
     fn compute_diffs_with_registry(
         &self,
+        state: &mut AppState,
         cli: &Cli,
         registry: &crate::parse::shared::SharedExampleRegistry,
     ) -> Result<Vec<FileDiff>> {
-        self.with_source(|source| pipeline::diff_files_with_registry(source, cli, registry))
+        let mb = self.resolve_merge_base(state);
+        self.with_source(mb.as_deref(), |source| pipeline::diff_files_with_registry(source, cli, registry))
     }
 
-    fn needs_shared_scan(&self, cli: &Cli) -> bool {
-        self.with_source(|source| {
+    fn needs_shared_scan(&self, state: &mut AppState, cli: &Cli) -> bool {
+        let mb = self.resolve_merge_base(state);
+        self.with_source(mb.as_deref(), |source| {
             let paths = source.list_files().unwrap_or_default();
             Ok(pipeline::changed_files_need_shared_scan(&paths, source, cli))
         })
         .unwrap_or(false)
     }
 
-    fn build_registry(&self, cli: &Cli) -> crate::parse::shared::SharedExampleRegistry {
-        self.with_source(|source| {
+    fn build_registry(&self, state: &mut AppState, cli: &Cli) -> crate::parse::shared::SharedExampleRegistry {
+        let mb = self.resolve_merge_base(state);
+        self.with_source(mb.as_deref(), |source| {
             let all_paths = source.list_files().unwrap_or_default();
             let shared_paths = source.list_shared_files_all();
             let all_scannable: Vec<String> = {
@@ -80,12 +87,30 @@ impl WatchMode<'_> {
         .unwrap_or_default()
     }
 
-    fn with_source<T>(&self, f: impl FnOnce(&dyn pipeline::FileSource) -> Result<T>) -> Result<T> {
+    fn resolve_merge_base(&self, state: &mut AppState) -> Option<String> {
         match self {
             WatchMode::Vcs { vcs, base_rev, head_rev } => {
-                let merge_base = vcs.merge_base(base_rev, head_rev)
+                let stale = state.merge_base_time.elapsed() > Duration::from_secs(2);
+                if !stale
+                    && let Some(cached) = &state.cached_merge_base
+                {
+                    return Some(cached.clone());
+                }
+                let mb = vcs.merge_base(base_rev, head_rev)
                     .unwrap_or_else(|_| base_rev.clone());
-                let changed = vcs.changed_files(&merge_base, head_rev)?;
+                state.cached_merge_base = Some(mb.clone());
+                state.merge_base_time = std::time::Instant::now();
+                Some(mb)
+            }
+            WatchMode::Directory { .. } => None,
+        }
+    }
+
+    fn with_source<T>(&self, merge_base: Option<&str>, f: impl FnOnce(&dyn pipeline::FileSource) -> Result<T>) -> Result<T> {
+        match self {
+            WatchMode::Vcs { vcs, base_rev, head_rev } => {
+                let mb = merge_base.unwrap_or(base_rev);
+                let changed = vcs.changed_files(mb, head_rev)?;
                 let test_files: Vec<PathBuf> = changed
                     .into_iter()
                     .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
@@ -93,7 +118,7 @@ impl WatchMode<'_> {
                 let source = VcsSource {
                     vcs: *vcs,
                     files: test_files,
-                    merge_base,
+                    merge_base: mb.to_string(),
                     head_rev: head_rev.clone(),
                 };
                 f(&source)
@@ -159,10 +184,8 @@ fn run_watch_directory(base: &str, head: &str, cli: &Cli) -> Result<()> {
 }
 
 fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
-    let file_diffs = mode.compute_diffs_fast(cli)?;
-
     let mut state = AppState {
-        file_diffs,
+        file_diffs: vec![],
         scroll: 0,
         section_offsets: vec![],
         max_scroll: 0,
@@ -170,8 +193,12 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
         filter: cli.filter.clone(),
         quit: false,
         needs_redraw: true,
+        cached_merge_base: None,
+        merge_base_time: std::time::Instant::now(),
         shared_registry: None,
     };
+
+    state.file_diffs = mode.compute_diffs_fast(&mut state, cli)?;
 
     let (tx, rx) = mpsc::channel();
 
@@ -194,7 +221,7 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
 
     let mut terminal = ratatui::init();
 
-    if mode.needs_shared_scan(cli) {
+    if mode.needs_shared_scan(&mut state, cli) {
         let filtered;
         let diffs: &[FileDiff] = if let Some(pattern) = &state.filter {
             filtered = filter_file_diffs(state.file_diffs.clone(), pattern);
@@ -206,8 +233,8 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
             render::render(frame, diffs, state.scroll, state.changed_only);
         })?;
 
-        let registry = mode.build_registry(cli);
-        if let Ok(diffs) = mode.compute_diffs_with_registry(cli, &registry) {
+        let registry = mode.build_registry(&mut state, cli);
+        if let Ok(diffs) = mode.compute_diffs_with_registry(&mut state, cli, &registry) {
             state.file_diffs = diffs;
             state.shared_registry = Some(registry);
             state.needs_redraw = true;
@@ -292,16 +319,18 @@ fn run_event_loop(
 
         match rx.try_recv() {
             Ok(AppEvent::FileChanged) => {
-                let diffs = if let Some(reg) = &state.shared_registry {
-                    mode.compute_diffs_with_registry(cli, reg)?
+                state.cached_merge_base = None;
+                let reg = state.shared_registry.clone();
+                let diffs = if let Some(reg) = &reg {
+                    mode.compute_diffs_with_registry(state, cli, reg)?
                 } else {
-                    mode.compute_diffs_fast(cli)?
+                    mode.compute_diffs_fast(state, cli)?
                 };
                 state.file_diffs = diffs;
                 state.needs_redraw = true;
             }
             Ok(AppEvent::RegistryReady(registry)) => {
-                if let Ok(diffs) = mode.compute_diffs_with_registry(cli, &registry) {
+                if let Ok(diffs) = mode.compute_diffs_with_registry(state, cli, &registry) {
                     state.file_diffs = diffs;
                     state.shared_registry = Some(registry);
                     state.needs_redraw = true;
