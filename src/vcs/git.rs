@@ -257,4 +257,32 @@ mod tests {
         let result = vcs.file_at_revision(Path::new("nonexistent.rb"), "main");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn git_no_changes_after_merge_base_advances() {
+        let (dir, _) = create_test_repo();
+
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(dir.path())
+            .output()
+            .expect("checkout main");
+
+        Command::new("git")
+            .args(["merge", "feature", "--no-edit"])
+            .current_dir(dir.path())
+            .output()
+            .expect("merge feature into main");
+
+        Command::new("git")
+            .args(["checkout", "feature"])
+            .current_dir(dir.path())
+            .output()
+            .expect("checkout feature");
+
+        let vcs = GitVcs::open(dir.path()).expect("reopen");
+        let merge_base = vcs.merge_base("main", "feature").expect("merge_base");
+        let files = vcs.changed_files(&merge_base, "feature").expect("changed_files");
+        assert!(files.is_empty(), "after main catches up to feature, no files should be changed");
+    }
 }
