@@ -16,6 +16,7 @@ use std::time::Duration;
 
 enum AppEvent {
     FileChanged,
+    RegistryReady(crate::parse::shared::SharedExampleRegistry),
     Tick,
 }
 
@@ -28,6 +29,7 @@ struct AppState {
     filter: Option<String>,
     quit: bool,
     needs_redraw: bool,
+    shared_registry: Option<crate::parse::shared::SharedExampleRegistry>,
 }
 
 enum WatchMode<'a> {
@@ -43,7 +45,41 @@ enum WatchMode<'a> {
 }
 
 impl WatchMode<'_> {
-    fn compute_diffs(&self, cli: &Cli) -> Result<Vec<FileDiff>> {
+    fn compute_diffs_fast(&self, cli: &Cli) -> Result<Vec<FileDiff>> {
+        self.with_source(|source| pipeline::diff_files_fast(source, cli))
+    }
+
+    fn compute_diffs_with_registry(
+        &self,
+        cli: &Cli,
+        registry: &crate::parse::shared::SharedExampleRegistry,
+    ) -> Result<Vec<FileDiff>> {
+        self.with_source(|source| pipeline::diff_files_with_registry(source, cli, registry))
+    }
+
+    fn needs_shared_scan(&self, cli: &Cli) -> bool {
+        self.with_source(|source| {
+            let paths = source.list_files().unwrap_or_default();
+            Ok(pipeline::changed_files_need_shared_scan(&paths, source, cli))
+        })
+        .unwrap_or(false)
+    }
+
+    fn build_registry(&self, cli: &Cli) -> crate::parse::shared::SharedExampleRegistry {
+        self.with_source(|source| {
+            let all_paths = source.list_files().unwrap_or_default();
+            let shared_paths = source.list_shared_files_all();
+            let all_scannable: Vec<String> = {
+                let mut set: std::collections::BTreeSet<String> = all_paths.into_iter().collect();
+                set.extend(shared_paths);
+                set.into_iter().collect()
+            };
+            Ok(pipeline::build_shared_registry(source, &all_scannable, cli, |s, path| s.read_head(path)))
+        })
+        .unwrap_or_default()
+    }
+
+    fn with_source<T>(&self, f: impl FnOnce(&dyn pipeline::FileSource) -> Result<T>) -> Result<T> {
         match self {
             WatchMode::Vcs { vcs, merge_base, head_rev } => {
                 let changed = vcs.changed_files(merge_base, head_rev)?;
@@ -57,14 +93,14 @@ impl WatchMode<'_> {
                     merge_base: merge_base.clone(),
                     head_rev: head_rev.clone(),
                 };
-                pipeline::diff_files(&source, cli)
+                f(&source)
             }
             WatchMode::Directory { base, head } => {
                 let source = DirectorySource {
                     base: base.clone(),
                     head: head.clone(),
                 };
-                pipeline::diff_files(&source, cli)
+                f(&source)
             }
         }
     }
@@ -123,7 +159,7 @@ fn run_watch_directory(base: &str, head: &str, cli: &Cli) -> Result<()> {
 }
 
 fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
-    let file_diffs = mode.compute_diffs(cli)?;
+    let file_diffs = mode.compute_diffs_fast(cli)?;
 
     let mut state = AppState {
         file_diffs,
@@ -133,6 +169,7 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
         filter: cli.filter.clone(),
         quit: false,
         needs_redraw: true,
+        shared_registry: None,
     };
 
     let (tx, rx) = mpsc::channel();
@@ -155,6 +192,27 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
     }));
 
     let mut terminal = ratatui::init();
+
+    if mode.needs_shared_scan(cli) {
+        let filtered;
+        let diffs: &[FileDiff] = if let Some(pattern) = &state.filter {
+            filtered = filter_file_diffs(state.file_diffs.clone(), pattern);
+            &filtered
+        } else {
+            &state.file_diffs
+        };
+        terminal.draw(|frame| {
+            render::render(frame, diffs, state.scroll, state.changed_only);
+        })?;
+
+        let registry = mode.build_registry(cli);
+        if let Ok(diffs) = mode.compute_diffs_with_registry(cli, &registry) {
+            state.file_diffs = diffs;
+            state.shared_registry = Some(registry);
+            state.needs_redraw = true;
+        }
+    }
+
     let result = run_event_loop(&mut terminal, &mut state, &rx, mode, cli);
     ratatui::restore();
 
@@ -231,8 +289,20 @@ fn run_event_loop(
 
         match rx.try_recv() {
             Ok(AppEvent::FileChanged | AppEvent::Tick) => {
-                state.file_diffs = mode.compute_diffs(cli)?;
+                let diffs = if let Some(reg) = &state.shared_registry {
+                    mode.compute_diffs_with_registry(cli, reg)?
+                } else {
+                    mode.compute_diffs_fast(cli)?
+                };
+                state.file_diffs = diffs;
                 state.needs_redraw = true;
+            }
+            Ok(AppEvent::RegistryReady(registry)) => {
+                if let Ok(diffs) = mode.compute_diffs_with_registry(cli, &registry) {
+                    state.file_diffs = diffs;
+                    state.shared_registry = Some(registry);
+                    state.needs_redraw = true;
+                }
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => break,

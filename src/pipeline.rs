@@ -141,20 +141,56 @@ impl FileSource for VcsSource<'_> {
 
 pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
     let all_paths = source.list_files()?;
-    let shared_paths = source.list_shared_files_all();
 
-    let all_scannable: Vec<String> = {
-        let mut set: std::collections::BTreeSet<String> = all_paths.iter().cloned().collect();
-        set.extend(shared_paths);
-        set.into_iter().collect()
+    let needs_shared = changed_files_need_shared_scan(&all_paths, source, cli);
+
+    let (base_registry, head_registry) = if needs_shared {
+        let shared_paths = source.list_shared_files_all();
+        let all_scannable: Vec<String> = {
+            let mut set: std::collections::BTreeSet<String> = all_paths.iter().cloned().collect();
+            set.extend(shared_paths);
+            set.into_iter().collect()
+        };
+        (
+            build_shared_registry(source, &all_scannable, cli, |s, path| s.read_base(path)),
+            build_shared_registry(source, &all_scannable, cli, |s, path| s.read_head(path)),
+        )
+    } else {
+        (
+            parse::shared::SharedExampleRegistry::default(),
+            parse::shared::SharedExampleRegistry::default(),
+        )
     };
 
-    let base_registry = build_shared_registry(source, &all_scannable, cli, |s, path| s.read_base(path));
-    let head_registry = build_shared_registry(source, &all_scannable, cli, |s, path| s.read_head(path));
+    diff_with_registries(source, &all_paths, cli, &base_registry, &head_registry)
+}
+
+pub fn diff_files_fast(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
+    let all_paths = source.list_files()?;
+    let empty = SharedExampleRegistry::default();
+    diff_with_registries(source, &all_paths, cli, &empty, &empty)
+}
+
+pub fn diff_files_with_registry(
+    source: &dyn FileSource,
+    cli: &Cli,
+    registry: &SharedExampleRegistry,
+) -> Result<Vec<FileDiff>> {
+    let all_paths = source.list_files()?;
+    diff_with_registries(source, &all_paths, cli, registry, registry)
+}
+
+fn diff_with_registries(
+    source: &dyn FileSource,
+    all_paths: &[String],
+    cli: &Cli,
+    base_registry: &SharedExampleRegistry,
+    head_registry: &SharedExampleRegistry,
+) -> Result<Vec<FileDiff>> {
 
     let mut file_diffs = Vec::new();
 
-    for rel_path in &all_paths {
+    for rel_path in all_paths {
         let frameworks = parse::registry::frameworks_for_file(Path::new(rel_path));
         let framework = if let Some(name) = &cli.framework {
             frameworks.iter().find(|f| f.name == *name).copied()
@@ -166,8 +202,8 @@ pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
             continue;
         };
 
-        let base_shared = if base_registry.is_empty() { None } else { Some(&base_registry) };
-        let head_shared = if head_registry.is_empty() { None } else { Some(&head_registry) };
+        let base_shared = if base_registry.is_empty() { None } else { Some(base_registry) };
+        let head_shared = if head_registry.is_empty() { None } else { Some(head_registry) };
 
         let base_source = source.read_base(rel_path);
         let head_source = source.read_head(rel_path);
@@ -192,7 +228,56 @@ pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
     Ok(file_diffs)
 }
 
-fn build_shared_registry(
+pub fn changed_files_need_shared_scan(
+    all_paths: &[String],
+    source: &dyn FileSource,
+    cli: &Cli,
+) -> bool {
+    let shared_keywords: &[&str] = &[
+        "include_examples", "include_context",
+        "it_behaves_like", "it_should_behave_like",
+        "shared_examples", "shared_context",
+    ];
+    let inheritance_keywords: &[&str] = &[
+        "extends", "include ", "extend ",
+        "(Base", "(Test",
+    ];
+
+    for rel_path in all_paths {
+        let frameworks = parse::registry::frameworks_for_file(Path::new(rel_path));
+        let framework = if let Some(name) = &cli.framework {
+            frameworks.iter().find(|f| f.name == *name).copied()
+        } else {
+            frameworks.first().copied()
+        };
+        let Some(fw) = framework else { continue };
+
+        let has_shared = fw.shared.as_ref().is_some_and(|s| !s.inclusion.is_empty());
+        let has_inheritance = fw.inheritance.as_ref().is_some_and(|i| i.enabled);
+        if !has_shared && !has_inheritance {
+            continue;
+        }
+
+        for read_fn in [FileSource::read_head, FileSource::read_base] {
+            if let Some(content) = read_fn(source, rel_path) {
+                if has_shared
+                    && shared_keywords.iter().any(|kw| content.contains(kw))
+                {
+                    return true;
+                }
+                if has_inheritance
+                    && inheritance_keywords.iter().any(|kw| content.contains(kw))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+pub fn build_shared_registry(
     source: &dyn FileSource,
     all_paths: &[String],
     cli: &Cli,
@@ -299,4 +384,148 @@ fn collect_files_recursive(root: &Path, dir: &Path, files: &mut Vec<String>) -> 
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockSource {
+        files: Vec<(String, String)>,
+    }
+
+    impl FileSource for MockSource {
+        fn list_files(&self) -> Result<Vec<String>> {
+            Ok(self.files.iter().map(|(name, _)| name.clone()).collect())
+        }
+        fn read_base(&self, _rel_path: &str) -> Option<String> {
+            None
+        }
+        fn read_head(&self, rel_path: &str) -> Option<String> {
+            self.files.iter().find(|(n, _)| n == rel_path).map(|(_, c)| c.clone())
+        }
+    }
+
+    fn default_cli() -> Cli {
+        Cli {
+            print: false,
+            base: None,
+            head: None,
+            format: crate::cli::OutputFormat::Tree,
+            changed_only: false,
+            framework: None,
+            filter: None,
+            no_color: true,
+            base_dir: None,
+            head_dir: None,
+        }
+    }
+
+    #[test]
+    fn skip_shared_scan_when_no_keywords() {
+        let source = MockSource {
+            files: vec![(
+                "spec/models/user_spec.rb".into(),
+                "RSpec.describe User do\n  it \"works\" do\n  end\nend\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let paths = source.list_files().expect("list");
+        assert!(
+            !changed_files_need_shared_scan(&paths, &source, &cli),
+            "plain rspec file without shared keywords should skip scan"
+        );
+    }
+
+    #[test]
+    fn trigger_shared_scan_for_it_behaves_like() {
+        let source = MockSource {
+            files: vec![(
+                "spec/models/user_spec.rb".into(),
+                "RSpec.describe User do\n  it_behaves_like \"timestamped\"\nend\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let paths = source.list_files().expect("list");
+        assert!(
+            changed_files_need_shared_scan(&paths, &source, &cli),
+            "it_behaves_like should trigger shared scan"
+        );
+    }
+
+    #[test]
+    fn trigger_shared_scan_for_include_examples() {
+        let source = MockSource {
+            files: vec![(
+                "spec/models/user_spec.rb".into(),
+                "RSpec.describe User do\n  include_examples \"soft delete\"\nend\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let paths = source.list_files().expect("list");
+        assert!(
+            changed_files_need_shared_scan(&paths, &source, &cli),
+        );
+    }
+
+    #[test]
+    fn trigger_shared_scan_for_python_inheritance() {
+        let source = MockSource {
+            files: vec![(
+                "tests/test_user.py".into(),
+                "class TestUser(BaseTest):\n    def test_foo(self):\n        pass\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let paths = source.list_files().expect("list");
+        assert!(
+            changed_files_need_shared_scan(&paths, &source, &cli),
+            "(BaseTest should trigger inheritance scan"
+        );
+    }
+
+    #[test]
+    fn skip_shared_scan_for_plain_python() {
+        let source = MockSource {
+            files: vec![(
+                "tests/test_user.py".into(),
+                "class TestUser:\n    def test_foo(self):\n        pass\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let paths = source.list_files().expect("list");
+        assert!(
+            !changed_files_need_shared_scan(&paths, &source, &cli),
+            "plain python class without inheritance should skip scan"
+        );
+    }
+
+    #[test]
+    fn skip_shared_scan_for_rust_files() {
+        let source = MockSource {
+            files: vec![(
+                "src/lib.rs".into(),
+                "#[cfg(test)]\nmod tests {\n    #[test]\n    fn test_foo() {}\n}\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let paths = source.list_files().expect("list");
+        assert!(
+            !changed_files_need_shared_scan(&paths, &source, &cli),
+            "rust files have no shared/inheritance, should skip"
+        );
+    }
+
+    #[test]
+    fn diff_files_produces_output_without_shared_scan() {
+        let source = MockSource {
+            files: vec![(
+                "spec/models/user_spec.rb".into(),
+                "RSpec.describe User do\n  it \"works\" do\n  end\nend\n".into(),
+            )],
+        };
+        let cli = default_cli();
+        let diffs = diff_files(&source, &cli).expect("diff_files");
+        assert!(!diffs.is_empty(), "should produce diffs even without shared scan");
+    }
 }

@@ -105,7 +105,6 @@ fn try_match_inclusion(
     shared: Option<&SharedExampleRegistry>,
 ) -> Option<Vec<SpecNode>> {
     let shared_def = framework.shared.as_ref()?;
-    let registry = shared?;
 
     if node.kind() != "call" && node.kind() != "call_expression" {
         return None;
@@ -127,6 +126,24 @@ fn try_match_inclusion(
             &inclusion.name_source,
             inclusion.name_source_type.as_deref(),
         )?;
+
+        let Some(registry) = shared else {
+            let display = match inclusion.nesting.as_deref() {
+                Some("nested") => inclusion
+                    .nested_name_template
+                    .as_deref()
+                    .unwrap_or("{name}")
+                    .replace("{name}", &name),
+                _ => name,
+            };
+            return Some(vec![SpecNode {
+                name: format!("\u{2026} {display}"),
+                kind: SpecKind::SharedInclusion,
+                children: vec![],
+                line: node.start_position().row + 1,
+                parameterized: None,
+            }]);
+        };
 
         let specs = registry.get(&name)?;
 

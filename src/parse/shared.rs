@@ -465,7 +465,7 @@ end
     }
 
     #[test]
-    fn without_registry_inclusions_are_ignored() {
+    fn without_registry_inclusions_show_placeholder() {
         let test_source = r#"
 RSpec.describe User do
   include_examples "a timestamped model"
@@ -478,6 +478,13 @@ end
         );
         let tree = tree.expect("parsed");
         let user = &tree.root[0];
-        assert_eq!(user.children.len(), 1, "without registry, inclusions are ignored");
+        assert_eq!(user.children.len(), 2, "should have placeholder + own spec");
+        assert!(
+            user.children[0].name.starts_with('\u{2026}'),
+            "placeholder should start with ellipsis, got: {}",
+            user.children[0].name
+        );
+        assert_eq!(user.children[0].kind, crate::parse::SpecKind::SharedInclusion);
+        assert_eq!(user.children[1].name, "has a name");
     }
 }
