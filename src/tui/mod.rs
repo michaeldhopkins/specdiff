@@ -255,15 +255,10 @@ fn setup_watcher(
         Duration::from_millis(200),
         move |events: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
             if let Ok(events) = events {
-                let has_relevant = events.iter().any(|e| {
-                    e.kind == DebouncedEventKind::Any
-                        && e.path.extension()
-                            .and_then(|ext| ext.to_str())
-                            .is_some_and(|ext| {
-                                matches!(ext, "rb" | "rs" | "py" | "js" | "jsx" | "ts" | "tsx" | "go" | "exs")
-                            })
+                let dominated = events.iter().any(|e| {
+                    e.kind == DebouncedEventKind::Any && is_relevant_path(&e.path)
                 });
-                if has_relevant {
+                if dominated {
                     let _ = tx.send(AppEvent::FileChanged);
                 }
             }
@@ -405,4 +400,66 @@ fn prev_section(current: usize, offsets: &[usize]) -> usize {
         .find(|&&o| o < current)
         .copied()
         .unwrap_or(0)
+}
+
+fn is_relevant_path(path: &std::path::Path) -> bool {
+    let s = path.to_string_lossy();
+    if s.contains(".git/refs") || s.contains(".jj/repo") {
+        return true;
+    }
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            matches!(ext, "rb" | "rs" | "py" | "js" | "jsx" | "ts" | "tsx" | "go" | "exs" | "java" | "php")
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn relevant_path_test_files() {
+        assert!(is_relevant_path(Path::new("spec/models/user_spec.rb")));
+        assert!(is_relevant_path(Path::new("src/lib.rs")));
+        assert!(is_relevant_path(Path::new("tests/test_user.py")));
+        assert!(is_relevant_path(Path::new("user.test.js")));
+        assert!(is_relevant_path(Path::new("user.test.tsx")));
+        assert!(is_relevant_path(Path::new("user_test.go")));
+        assert!(is_relevant_path(Path::new("test/user_test.exs")));
+        assert!(is_relevant_path(Path::new("tests/UserTest.java")));
+        assert!(is_relevant_path(Path::new("tests/UserTest.php")));
+    }
+
+    #[test]
+    fn relevant_path_vcs_refs() {
+        assert!(is_relevant_path(Path::new("/repo/.git/refs/heads/main")));
+        assert!(is_relevant_path(Path::new("/repo/.jj/repo/op_heads/abc")));
+    }
+
+    #[test]
+    fn irrelevant_paths() {
+        assert!(!is_relevant_path(Path::new("Cargo.toml")));
+        assert!(!is_relevant_path(Path::new("README.md")));
+        assert!(!is_relevant_path(Path::new("src/main.css")));
+        assert!(!is_relevant_path(Path::new(".git/index")));
+        assert!(!is_relevant_path(Path::new(".git/COMMIT_EDITMSG")));
+    }
+
+    #[test]
+    fn next_section_jumps_forward() {
+        let offsets = vec![0, 10, 20];
+        assert_eq!(next_section(0, &offsets), 10);
+        assert_eq!(next_section(10, &offsets), 20);
+        assert_eq!(next_section(20, &offsets), 20);
+    }
+
+    #[test]
+    fn prev_section_jumps_backward() {
+        let offsets = vec![0, 10, 20];
+        assert_eq!(prev_section(20, &offsets), 10);
+        assert_eq!(prev_section(10, &offsets), 0);
+        assert_eq!(prev_section(0, &offsets), 0);
+    }
 }

@@ -15,10 +15,12 @@ Read these projects' code to match their quality bar and patterns.
 ## Pre-Commit Checklist
 
 Before every commit, verify:
-1. `cargo clippy --all-targets -- -D warnings` passes
-2. `cargo test` passes
-3. Version bumped in Cargo.toml (patch for fixes, minor for features)
-4. All files end with a newline
+1. Every code change has a corresponding test. No exceptions.
+2. `cargo clippy --all-targets -- -D warnings` passes
+3. `cargo test` passes
+4. Version bumped in Cargo.toml (patch for fixes, minor for features)
+5. `cargo install --path . --force` run before pushing
+6. All files end with a newline
 
 ## Versioning (Semver)
 
