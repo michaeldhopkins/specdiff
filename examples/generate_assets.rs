@@ -10,7 +10,7 @@ fn main() {
     let completions_dir = out_dir.join("completions");
     std::fs::create_dir_all(&completions_dir).expect("failed to create output directories");
 
-    let mut cmd = spec_diff::cli::Cli::command();
+    let mut cmd = specdiff::cli::Cli::command();
 
     let man = clap_mangen::Man::new(cmd.clone());
     let mut buf = Vec::new();

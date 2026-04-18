@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use spec_diff::cli;
-use spec_diff::diff;
-use spec_diff::output;
-use spec_diff::parse;
-use spec_diff::pipeline::{self, DirectorySource, VcsSource};
-use spec_diff::tui;
-use spec_diff::vcs;
+use specdiff::cli;
+use specdiff::diff;
+use specdiff::output;
+use specdiff::parse;
+use specdiff::pipeline::{self, DirectorySource, VcsSource};
+use specdiff::tui;
+use specdiff::vcs;
 use std::borrow::Cow;
 use std::path::PathBuf;
 

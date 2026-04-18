@@ -1,5 +1,5 @@
 [package]
-name = "spec-diff"
+name = "specdiff"
 version = "0.16.0"
 edition = "2024"
 rust-version = "1.91"
@@ -16,7 +16,7 @@ name = "specdiff"
 path = "src/main.rs"
 
 [lib]
-name = "spec_diff"
+name = "specdiff"
 path = "src/lib.rs"
 
 [dependencies]
