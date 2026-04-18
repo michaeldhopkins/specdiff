@@ -1,6 +1,6 @@
 # specdiff
 
-Show how the test outline of a project has changed on a branch.
+Show how the test outline of a project has changed on a branch. If you're good about TDD, this tells you what the app code does. If you or or team are struggling to use tests, this tells you quickly what's missing or could be better described.
 
 <img width="703" height="699" alt="Screenshot 2026-04-17 at 20 39 40" src="https://github.com/user-attachments/assets/3772e1d0-100a-42b0-975e-734909d44d6a" />
 <img width="372" height="657" alt="Screenshot 2026-04-17 at 20 40 10" src="https://github.com/user-attachments/assets/2ff704ea-d0fb-44fd-ab4d-60788893d1ec" />
