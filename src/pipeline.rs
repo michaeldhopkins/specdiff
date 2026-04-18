@@ -227,7 +227,7 @@ fn diff_with_registries(
         let head_nodes = head_tree.map(|t| t.root).unwrap_or_default();
 
         let nodes = diff::diff_spec_nodes(&base_nodes, &head_nodes);
-        if nodes.is_empty() {
+        if nodes.is_empty() || !nodes.iter().any(|n| n.has_changes()) {
             return None;
         }
         let display_path = parse::registry::normalize_file_path(&fc.rel_path, framework);
