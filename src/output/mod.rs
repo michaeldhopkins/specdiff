@@ -250,4 +250,27 @@ mod tests {
         let output = format_tree(&sample_file_diffs(), false, false);
         assert!(!output.contains("\x1b["), "no-color output should not contain ANSI codes");
     }
+
+    #[test]
+    fn tree_format_empty_diffs_no_stats() {
+        let output = format_tree(&[], false, false);
+        assert!(!output.contains("+0"), "empty diffs should not show +0");
+        assert!(!output.contains("-0"), "empty diffs should not show -0");
+    }
+
+    #[test]
+    fn tree_format_no_changes_shows_message() {
+        let diffs = vec![FileDiff {
+            path: "models::user".into(),
+            nodes: vec![DiffNode {
+                name: "works".into(),
+                kind: DiffKind::Unchanged,
+                old_name: None,
+                param_cases: None,
+                children: vec![],
+            }],
+        }];
+        let output = format_tree(&diffs, false, false);
+        assert!(!output.contains("+0"), "all-unchanged should not show +0");
+    }
 }

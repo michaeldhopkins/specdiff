@@ -583,4 +583,87 @@ mod tests {
         });
         assert!(has_placeholder, "fast path should produce placeholder for shared inclusion");
     }
+
+    #[test]
+    fn unchanged_files_excluded_from_output() {
+        let source = MockSource {
+            files: vec![
+                (
+                    "spec/models/user_spec.rb".into(),
+                    "RSpec.describe User do\n  it \"works\" do\n  end\nend\n".into(),
+                ),
+                (
+                    "spec/models/post_spec.rb".into(),
+                    "RSpec.describe Post do\n  it \"works\" do\n  end\nend\n".into(),
+                ),
+            ],
+        };
+        let cli = default_cli();
+        let diffs = diff_files(&source, &cli).expect("diff_files");
+        assert_eq!(
+            diffs.len(), 2,
+            "both files are head-only (no base), so both should appear as added"
+        );
+
+        for d in &diffs {
+            assert!(
+                d.nodes.iter().any(|n| n.has_changes()),
+                "every file in output should have at least one change: {}",
+                d.path
+            );
+        }
+    }
+
+    #[test]
+    fn identical_base_and_head_produces_no_output() {
+        let content = "RSpec.describe User do\n  it \"works\" do\n  end\nend\n".to_string();
+
+        struct IdenticalSource(String);
+        impl FileSource for IdenticalSource {
+            fn list_files(&self) -> Result<Vec<String>> {
+                Ok(vec!["spec/models/user_spec.rb".into()])
+            }
+            fn read_base(&self, _: &str) -> Option<String> {
+                Some(self.0.clone())
+            }
+            fn read_head(&self, _: &str) -> Option<String> {
+                Some(self.0.clone())
+            }
+        }
+
+        let source = IdenticalSource(content);
+        let cli = default_cli();
+        let diffs = diff_files(&source, &cli).expect("diff_files");
+        assert!(
+            diffs.is_empty(),
+            "identical base and head should produce no file diffs"
+        );
+    }
+
+    #[test]
+    fn file_with_code_changes_but_no_spec_changes_excluded() {
+        let base = "RSpec.describe User do\n  it \"works\" do\n    x = 1\n  end\nend\n";
+        let head = "RSpec.describe User do\n  it \"works\" do\n    x = 2\n  end\nend\n";
+
+        struct DiffSource { base: String, head: String }
+        impl FileSource for DiffSource {
+            fn list_files(&self) -> Result<Vec<String>> {
+                Ok(vec!["spec/models/user_spec.rb".into()])
+            }
+            fn read_base(&self, _: &str) -> Option<String> {
+                Some(self.base.clone())
+            }
+            fn read_head(&self, _: &str) -> Option<String> {
+                Some(self.head.clone())
+            }
+        }
+
+        let source = DiffSource { base: base.into(), head: head.into() };
+        let cli = default_cli();
+        let diffs = diff_files(&source, &cli).expect("diff_files");
+        assert!(
+            diffs.is_empty(),
+            "file where spec names are identical should not appear in output"
+        );
+    }
 }

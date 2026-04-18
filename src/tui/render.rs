@@ -21,18 +21,25 @@ pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, changed
     .split(area);
 
     let stats = Stats::from_file_diffs(file_diffs);
-    let header_spans = vec![
-        Span::styled("specdiff", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw("  "),
-        Span::styled(format!("+{}", stats.added), Style::default().fg(Color::Green)),
-        Span::raw(" "),
-        Span::styled(format!("-{}", stats.removed), Style::default().fg(Color::Red)),
-        if stats.renamed > 0 {
-            Span::styled(format!(" ~>{}", stats.renamed), Style::default().fg(Color::Yellow))
-        } else {
-            Span::raw("")
-        },
-    ];
+    let header_spans = if stats.is_empty() {
+        vec![
+            Span::styled("specdiff", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("  No test outline changes", Style::default().fg(Color::DarkGray)),
+        ]
+    } else {
+        vec![
+            Span::styled("specdiff", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw("  "),
+            Span::styled(format!("+{}", stats.added), Style::default().fg(Color::Green)),
+            Span::raw(" "),
+            Span::styled(format!("-{}", stats.removed), Style::default().fg(Color::Red)),
+            if stats.renamed > 0 {
+                Span::styled(format!(" ~>{}", stats.renamed), Style::default().fg(Color::Yellow))
+            } else {
+                Span::raw("")
+            },
+        ]
+    };
     let header = Paragraph::new(Line::from(header_spans))
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(header, chunks[0]);
