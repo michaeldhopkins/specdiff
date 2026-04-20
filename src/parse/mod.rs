@@ -25,6 +25,12 @@ pub struct SpecNode {
     pub line: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameterized: Option<ParamInfo>,
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub name_is_dynamic: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -42,6 +48,7 @@ impl SpecNode {
             children,
             line,
             parameterized: None,
+            name_is_dynamic: false,
         }
     }
 
@@ -52,6 +59,7 @@ impl SpecNode {
             children: vec![],
             line,
             parameterized: None,
+            name_is_dynamic: false,
         }
     }
 }

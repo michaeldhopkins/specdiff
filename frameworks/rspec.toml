@@ -44,6 +44,11 @@ method_names = ["scenario"]
 name_source = "first_argument"
 name_source_type = "string_literal"
 
+[framework.loop_expansion]
+enabled = true
+each_method = "each"
+literal_receiver_kinds = ["symbol_array", "string_array", "array", "hash"]
+
 [framework.normalization]
 raw = true
 

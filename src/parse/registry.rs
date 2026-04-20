@@ -47,7 +47,19 @@ pub struct FrameworkDef {
     #[serde(default)]
     pub inheritance: Option<InheritanceDef>,
     #[serde(default)]
+    pub loop_expansion: Option<LoopExpansionDef>,
+    #[serde(default)]
     pub handler: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LoopExpansionDef {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub each_method: String,
+    #[serde(default)]
+    pub literal_receiver_kinds: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

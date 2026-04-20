@@ -68,6 +68,8 @@ pub fn parse_children_with_shared(
             results.extend(nodes);
         } else if let Some(spec_node) = try_match_node(child, source, framework, shared) {
             results.push(spec_node);
+        } else if let Some(expanded) = try_expand_loop(child, source, framework, shared) {
+            results.extend(expanded);
         } else {
             results.extend(parse_children_with_shared(child, source, framework, shared));
         }
@@ -96,6 +98,229 @@ fn try_match_node(
         return Some(result);
     }
     None
+}
+
+// Expand `.each do |var| ...end` (or `{ |var| ... }`) into one spec per
+// literal collection element. Substitutes #{var} in the parsed body's spec
+// names with each value.
+//
+// Supported receivers: %i[], %w[], plain arrays of symbols/strings/numbers,
+// hash literals (whose pairs feed |k, v|), and arrays of nested arrays
+// (whose inner arrays feed multi-arg block parameters).
+//
+// Limitations:
+//   * Substitution is a literal `name.replace`; complex interpolation like
+//     `#{var.method}` survives unsubstituted (we'd need to evaluate the
+//     method call). Outer-scope variables referenced inside the body
+//     cannot be resolved beyond what scope-walking constant collection
+//     turns up.
+//   * Only spec NAMES whose source string had real interpolation get
+//     substituted (tracked via SpecNode::name_is_dynamic). A literal
+//     `#{var}` typed inside a single-quoted string is left alone.
+fn try_expand_loop(
+    node: Node,
+    source: &str,
+    framework: &FrameworkDef,
+    shared: Option<&SharedExampleRegistry>,
+) -> Option<Vec<SpecNode>> {
+    let loop_def = framework.loop_expansion.as_ref()?;
+    if !loop_def.enabled || loop_def.each_method.is_empty() {
+        return None;
+    }
+
+    if !is_dsl_call_kind(node.kind()) {
+        return None;
+    }
+    let method = extract_method_name(node, source)?;
+    if method != loop_def.each_method {
+        return None;
+    }
+
+    let receiver = node.child_by_field_name("receiver")?;
+    if !loop_def
+        .literal_receiver_kinds
+        .iter()
+        .any(|k| k == receiver.kind())
+    {
+        return None;
+    }
+
+    let tuples = extract_literal_tuples(receiver, source);
+    let block = node.child_by_field_name("block")?;
+    let params = extract_block_parameters(block, source);
+    let body = block.child_by_field_name("body")?;
+
+    // Empty literal (`%i[]` or `{}`) means zero iterations at runtime —
+    // return Some(empty) so callers don't fall through to recursion and
+    // emit a phantom describe with the unsubstituted placeholder.
+    if tuples.is_empty() {
+        return Some(vec![]);
+    }
+
+    let base_specs = parse_children_with_shared(body, source, framework, shared);
+    if base_specs.is_empty() {
+        return None;
+    }
+
+    let scope_assignments = collect_in_scope_assignments(node, source);
+    let loop_placeholders: Vec<String> = params
+        .iter()
+        .map(|p| format!("#{{{p}}}"))
+        .collect();
+
+    let mut expanded = Vec::with_capacity(tuples.len() * base_specs.len());
+    for tuple in &tuples {
+        let mut subs: Vec<(String, String)> = loop_placeholders
+            .iter()
+            .zip(tuple.iter())
+            .map(|(p, v)| (p.clone(), v.clone()))
+            .collect();
+        subs.extend(scope_assignments.iter().cloned());
+        for spec in &base_specs {
+            expanded.push(substitute_spec_name(spec, &subs));
+        }
+    }
+    Some(expanded)
+}
+
+// Walk previous siblings up the parent chain looking for `<ident> = "<literal>"`
+// assignments. Bindings closer to the loop shadow further-out bindings. Used by
+// loop expansion so a `PREFIX = "p"` defined alongside the each-loop substitutes
+// into `#{PREFIX}` in spec names.
+fn collect_in_scope_assignments(node: Node, source: &str) -> Vec<(String, String)> {
+    let mut assignments = Vec::new();
+    let mut cursor = Some(node);
+    while let Some(n) = cursor {
+        let mut prev = n.prev_sibling();
+        while let Some(sib) = prev {
+            if sib.kind() == "assignment"
+                && let Some((name, value)) = extract_string_assignment(sib, source)
+            {
+                let placeholder = format!("#{{{name}}}");
+                if !assignments.iter().any(|(p, _): &(String, String)| p == &placeholder) {
+                    assignments.push((placeholder, value));
+                }
+            }
+            prev = sib.prev_sibling();
+        }
+        cursor = n.parent();
+    }
+    assignments
+}
+
+fn extract_string_assignment(node: Node, source: &str) -> Option<(String, String)> {
+    let left = node.child_by_field_name("left")?;
+    let right = node.child_by_field_name("right")?;
+    if left.kind() != "identifier" && left.kind() != "constant" {
+        return None;
+    }
+    let name = node_text(left, source)?;
+    let value = literal_atom_text(right, source)?;
+    Some((name, value))
+}
+
+fn extract_literal_tuples(receiver: Node, source: &str) -> Vec<Vec<String>> {
+    let mut tuples = Vec::new();
+    let mut cursor = receiver.walk();
+    for child in receiver.children(&mut cursor) {
+        match child.kind() {
+            "bare_symbol" | "bare_string" => {
+                if let Some(text) = node_text(child, source) {
+                    tuples.push(vec![text]);
+                }
+            }
+            "simple_symbol" => {
+                if let Some(text) = node_text(child, source) {
+                    tuples.push(vec![text.trim_start_matches(':').to_string()]);
+                }
+            }
+            "string" => {
+                if let Some(text) = extract_string_content(child, source) {
+                    tuples.push(vec![text]);
+                }
+            }
+            "integer" | "float" => {
+                if let Some(text) = node_text(child, source) {
+                    tuples.push(vec![text]);
+                }
+            }
+            "pair" => {
+                // Hash element: |k, v|.
+                if let Some(pair) = extract_pair_values(child, source) {
+                    tuples.push(pair);
+                }
+            }
+            "array" => {
+                // Nested array element for paired/tuple iteration.
+                let inner = extract_literal_tuples(child, source);
+                let flat: Vec<String> = inner.into_iter().flatten().collect();
+                if !flat.is_empty() {
+                    tuples.push(flat);
+                }
+            }
+            _ => {}
+        }
+    }
+    tuples
+}
+
+fn extract_pair_values(pair: Node, source: &str) -> Option<Vec<String>> {
+    let key = pair.child_by_field_name("key")?;
+    let value = pair.child_by_field_name("value")?;
+    let key_text = literal_atom_text(key, source)?;
+    let value_text = literal_atom_text(value, source)?;
+    Some(vec![key_text, value_text])
+}
+
+fn literal_atom_text(node: Node, source: &str) -> Option<String> {
+    match node.kind() {
+        "bare_symbol" | "bare_string" => node_text(node, source),
+        "simple_symbol" => node_text(node, source).map(|t| t.trim_start_matches(':').to_string()),
+        "hash_key_symbol" => node_text(node, source),
+        "string" => extract_string_content(node, source),
+        "integer" | "float" => node_text(node, source),
+        _ => None,
+    }
+}
+
+fn extract_block_parameters(block: Node, source: &str) -> Vec<String> {
+    let Some(params) = block.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    let mut cursor = params.walk();
+    for child in params.children(&mut cursor) {
+        if child.kind() == "identifier"
+            && let Some(text) = node_text(child, source)
+        {
+            names.push(text);
+        }
+    }
+    names
+}
+
+fn substitute_spec_name(spec: &SpecNode, subs: &[(String, String)]) -> SpecNode {
+    let new_name = if spec.name_is_dynamic {
+        let mut name = spec.name.clone();
+        for (placeholder, value) in subs {
+            name = name.replace(placeholder, value);
+        }
+        name
+    } else {
+        spec.name.clone()
+    };
+    SpecNode {
+        name: new_name,
+        kind: spec.kind.clone(),
+        children: spec
+            .children
+            .iter()
+            .map(|c| substitute_spec_name(c, subs))
+            .collect(),
+        line: spec.line,
+        parameterized: spec.parameterized.clone(),
+        name_is_dynamic: spec.name_is_dynamic,
+    }
 }
 
 fn try_match_inclusion(
@@ -127,6 +352,8 @@ fn try_match_inclusion(
             inclusion.name_source_type.as_deref(),
         )?;
 
+        let name_is_dynamic = name_source_is_dynamic(node, &inclusion.name_source);
+
         let Some(registry) = shared else {
             let display = match inclusion.nesting.as_deref() {
                 Some("nested") => inclusion
@@ -142,6 +369,7 @@ fn try_match_inclusion(
                 children: vec![],
                 line: node.start_position().row + 1,
                 parameterized: None,
+                name_is_dynamic,
             }]);
         };
 
@@ -160,6 +388,7 @@ fn try_match_inclusion(
                     children: specs.to_vec(),
                     line: node.start_position().row + 1,
                     parameterized: None,
+                    name_is_dynamic,
                 }]);
             }
             _ => {
@@ -200,6 +429,7 @@ fn try_match_dsl_node(
                 children,
                 line: node.start_position().row + 1,
                 parameterized: None,
+                name_is_dynamic: name_source_is_dynamic(node, &group_def.name_source),
             });
         }
     }
@@ -221,6 +451,7 @@ fn try_match_dsl_node(
                     children: vec![],
                     line: node.start_position().row + 1,
                     parameterized: detect_parameterization(node, source, framework),
+                    name_is_dynamic: name_source_is_dynamic(node, &spec_def.name_source),
                 });
             }
         }
@@ -231,6 +462,19 @@ fn try_match_dsl_node(
 
 pub(crate) fn is_dsl_call_kind(kind: &str) -> bool {
     matches!(kind, "call" | "call_expression" | "function_call_expression")
+}
+
+fn name_source_is_dynamic(node: Node, name_source: &str) -> bool {
+    if name_source != "first_argument" {
+        return false;
+    }
+    let Some(args) = find_arguments(node) else {
+        return false;
+    };
+    let Some(arg) = args.named_child(0) else {
+        return false;
+    };
+    string_node_has_interpolation(unwrap_php_argument(arg))
 }
 
 pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
@@ -361,33 +605,46 @@ pub fn find_block(node: Node) -> Option<Node> {
     None
 }
 
+pub(crate) fn string_node_has_interpolation(node: Node) -> bool {
+    if !matches!(
+        node.kind(),
+        "string" | "string_literal" | "interpreted_string_literal" | "encapsed_string"
+    ) {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor).any(|c| {
+        matches!(c.kind(), "interpolation" | "template_substitution" | "variable_name")
+    })
+}
+
 fn extract_string_content(node: Node, source: &str) -> Option<String> {
     match node.kind() {
         "string" | "string_literal" | "interpreted_string_literal" | "encapsed_string" => {
-            let content_children: Vec<Node> = {
+            let mut content_children: Vec<Node> = Vec::new();
+            let mut has_dynamic = false;
+            {
                 let mut cursor = node.walk();
-                node.children(&mut cursor)
-                    .filter(|c| matches!(
-                        c.kind(),
+                for c in node.children(&mut cursor) {
+                    match c.kind() {
                         "string_content"
-                            | "string_fragment"
-                            | "interpreted_string_literal_content"
-                            | "quoted_content"
-                    ))
-                    .collect()
-            };
-
-            match content_children.len() {
-                0 => {
-                    let text = node_text(node, source)?;
-                    Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
-                }
-                1 => node_text(content_children[0], source),
-                _ => {
-                    let text = node_text(node, source)?;
-                    Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
+                        | "string_fragment"
+                        | "interpreted_string_literal_content"
+                        | "quoted_content" => content_children.push(c),
+                        "interpolation" | "template_substitution" | "variable_name" => {
+                            has_dynamic = true;
+                        }
+                        _ => {}
+                    }
                 }
             }
+
+            if !has_dynamic && content_children.len() == 1 {
+                return node_text(content_children[0], source);
+            }
+
+            let text = node_text(node, source)?;
+            Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
         }
         _ => None,
     }
@@ -460,6 +717,7 @@ fn try_match_annotation_marker(
             children: vec![],
             line: node.start_position().row + 1,
             parameterized: detect_parameterization(node, source, framework),
+            name_is_dynamic: false,
         }),
         "group" => {
             let mut children = inherited_specs(node, source, framework, shared);
@@ -472,6 +730,7 @@ fn try_match_annotation_marker(
                 children,
                 line: node.start_position().row + 1,
                 parameterized: None,
+                name_is_dynamic: false,
             })
         }
         _ => None,
@@ -532,6 +791,7 @@ fn try_match_attribute_marker(
             children: vec![],
             line: node.start_position().row + 1,
             parameterized: detect_parameterization(node, source, framework),
+            name_is_dynamic: false,
         }),
         "group" => {
             let body = node.child_by_field_name("body")?;
@@ -542,6 +802,7 @@ fn try_match_attribute_marker(
                 children,
                 line: node.start_position().row + 1,
                 parameterized: None,
+                name_is_dynamic: false,
             })
         }
         _ => None,
@@ -653,6 +914,7 @@ fn try_match_name_pattern_marker(
                     children: vec![],
                     line: node.start_position().row + 1,
                     parameterized,
+                    name_is_dynamic: false,
                 })
             } else {
                 Some(SpecNode {
@@ -661,6 +923,7 @@ fn try_match_name_pattern_marker(
                     children: nested,
                     line: node.start_position().row + 1,
                     parameterized: None,
+                    name_is_dynamic: false,
                 })
             }
         }
@@ -680,6 +943,7 @@ fn try_match_name_pattern_marker(
                 children,
                 line: node.start_position().row + 1,
                 parameterized: None,
+                name_is_dynamic: false,
             })
         }
         _ => None,
@@ -726,6 +990,7 @@ fn try_match_nested_call(
         let args = find_arguments(node)?;
         let first_arg = args.named_child(0)?;
         let name = extract_string_content(first_arg, source)?;
+        let name_is_dynamic = string_node_has_interpolation(unwrap_php_argument(first_arg));
 
         let nested_children = {
             let block = find_block(node);
@@ -748,6 +1013,7 @@ fn try_match_nested_call(
             children: nested_children,
             line: node.start_position().row + 1,
             parameterized: None,
+            name_is_dynamic,
         });
     }
 
@@ -1180,6 +1446,435 @@ end
         assert_eq!(associations.name, "associations");
         assert_eq!(associations.children.len(), 1);
         assert_eq!(associations.children[0].name, "has many posts");
+    }
+
+    #[test]
+    fn parse_rspec_interpolated_name_preserves_placeholder_when_expansion_skipped() {
+        // B1: interpolation is preserved verbatim when loop expansion can't
+        // substitute (non-literal receiver). Ensures we don't collapse
+        // "##{action}" to just "#".
+        let source = r###"
+RSpec.describe User do
+  ACTIONS.each do |action|
+    describe "##{action}" do
+      it "does something" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/models/user_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        assert_eq!(user.children.len(), 1);
+        assert_eq!(
+            user.children[0].name, "##{action}",
+            "non-literal receiver should leave placeholder untouched"
+        );
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_symbol_array() {
+        let source = r###"
+RSpec.describe User do
+  %i[create update].each do |action|
+    describe "##{action}" do
+      it "permits access" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/models/user_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["#create", "#update"]);
+        for child in &user.children {
+            assert_eq!(child.kind, SpecKind::Group);
+            assert_eq!(child.children.len(), 1);
+            assert_eq!(child.children[0].name, "permits access");
+        }
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_string_array() {
+        let source = r###"
+RSpec.describe Fruit do
+  %w[apple banana].each do |fruit|
+    context "when fruit is #{fruit}" do
+      it "tastes good" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/models/fruit_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["when fruit is apple", "when fruit is banana"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_plain_array_of_symbols() {
+        let source = r###"
+RSpec.describe Role do
+  [:admin, :user, :guest].each do |role|
+    describe "as #{role}" do
+      it "behaves correctly" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/models/role_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["as admin", "as user", "as guest"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_integer_array() {
+        let source = r###"
+RSpec.describe Counter do
+  [1, 2, 3].each do |n|
+    it "handles #{n}" do
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/models/counter_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        let names: Vec<&str> = user.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["handles 1", "handles 2", "handles 3"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_skipped_for_complex_interpolation() {
+        // Complex interpolation #{action.to_sym} can't be statically resolved.
+        // Substitution leaves the expression untouched; we still emit one spec
+        // per loop iteration with the placeholder partially substituted only
+        // where it's an exact #{var} match.
+        let source = r###"
+RSpec.describe X do
+  %i[a b].each do |action|
+    describe "for #{action.to_sym}" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/x_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        // Both iterations emit; the placeholder doesn't match the complex
+        // expression so the original source survives unchanged.
+        assert_eq!(user.children.len(), 2);
+        for child in &user.children {
+            assert_eq!(child.name, "for #{action.to_sym}");
+        }
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_nested_each_produces_cartesian_product() {
+        // M2: nested .each loops compose. Outer expansion calls
+        // parse_children_with_shared on the body, which re-enters
+        // try_expand_loop for the inner. Substitutions stack: inner first
+        // (its own var), then outer rewrites the remaining placeholder.
+        let source = r###"
+RSpec.describe Combo do
+  %i[a b].each do |x|
+    %i[c d].each do |y|
+      describe "#{x}-#{y}" do
+        it "tests" do
+        end
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/combo_spec.rb", rspec_framework()).expect("parsed");
+        let combo = &tree.root[0];
+        let names: Vec<&str> = combo.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["a-c", "a-d", "b-c", "b-d"]);
+        for child in &combo.children {
+            assert_eq!(child.kind, SpecKind::Group);
+            assert_eq!(child.children.len(), 1);
+            assert_eq!(child.children[0].name, "tests");
+        }
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_curly_brace_block() {
+        // M3: brace-block syntax `{ |x| ... }` should expand the same as
+        // do-end. Block kind differs (`block` vs `do_block`) but the
+        // `parameters` and `body` fields are present on both.
+        let source = r###"
+RSpec.describe Brace do
+  %i[one two].each { |n|
+    describe "##{n}" do
+      it "works" do
+      end
+    end
+  }
+end
+"###;
+        let tree = parse_file(source, "spec/brace_spec.rb", rspec_framework()).expect("parsed");
+        let brace = &tree.root[0];
+        let names: Vec<&str> = brace.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["#one", "#two"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_empty_literal_emits_zero_specs() {
+        // m5: empty literal collection means zero runtime iterations.
+        // We must not fall through to the recursion fallback (which
+        // would emit one phantom describe with the unsubstituted
+        // placeholder).
+        let source = r###"
+RSpec.describe Empty do
+  %i[].each do |x|
+    describe "##{x}" do
+      it "tests" do
+      end
+    end
+  end
+
+  it "still has a real spec" do
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/empty_spec.rb", rspec_framework()).expect("parsed");
+        let empty = &tree.root[0];
+        let names: Vec<&str> = empty.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["still has a real spec"], "empty .each must produce no phantom describe");
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_hash_with_two_block_params() {
+        // M1: |k, v| over a hash literal substitutes both placeholders.
+        let source = r###"
+RSpec.describe Mapping do
+  {alpha: 1, beta: 2}.each do |key, value|
+    describe "#{key} maps to #{value}" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/mapping_spec.rb", rspec_framework()).expect("parsed");
+        let mapping = &tree.root[0];
+        let names: Vec<&str> = mapping.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha maps to 1", "beta maps to 2"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_paired_array_with_two_block_params() {
+        // M1: nested arrays feeding |a, b| substitute both placeholders.
+        let source = r###"
+RSpec.describe Pairs do
+  [[1, "x"], [2, "y"]].each do |n, s|
+    describe "n=#{n} s=#{s}" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/pairs_spec.rb", rspec_framework()).expect("parsed");
+        let pairs = &tree.root[0];
+        let names: Vec<&str> = pairs.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["n=1 s=x", "n=2 s=y"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_no_block_parameters_emits_n_copies() {
+        // M4: parameter-less block still expands. The body has no
+        // placeholders to substitute, so we get N identical groups.
+        let source = r###"
+RSpec.describe Counter do
+  [1, 2, 3].each do
+    describe "static block" do
+      it "runs" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/counter_spec.rb", rspec_framework()).expect("parsed");
+        let counter = &tree.root[0];
+        assert_eq!(counter.children.len(), 3, "param-less .each over a 3-element literal must emit 3 copies");
+        for child in &counter.children {
+            assert_eq!(child.name, "static block");
+        }
+    }
+
+    #[test]
+    fn parse_rspec_loop_substitution_skips_single_quoted_literal() {
+        // m6: single-quoted strings don't actually interpolate, so #{x}
+        // appearing inside one is literal text. Substitution must NOT
+        // touch it. The describe (double-quoted) IS substituted; the
+        // inner it (single-quoted) is left alone.
+        let source = r###"
+RSpec.describe Quoting do
+  %i[a b].each do |x|
+    describe "##{x}" do
+      it 'literal #{x} text' do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/quoting_spec.rb", rspec_framework()).expect("parsed");
+        let quoting = &tree.root[0];
+        let group_names: Vec<&str> = quoting.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(group_names, vec!["#a", "#b"]);
+        for group in &quoting.children {
+            assert_eq!(group.children[0].name, "literal #{x} text", "single-quoted literal must not be substituted");
+        }
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_substitutes_outer_scope_constant() {
+        // m7: a constant assigned in the enclosing scope is collected by
+        // the scope-walk and substituted into expanded names alongside
+        // the loop variable.
+        let source = r###"
+RSpec.describe Scoped do
+  PREFIX = "p"
+  %i[a b].each do |x|
+    describe "#{PREFIX}-#{x}" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/scoped_spec.rb", rspec_framework()).expect("parsed");
+        let scoped = &tree.root[0];
+        let names: Vec<&str> = scoped.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["p-a", "p-b"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_nested_each_with_outer_scope_constant() {
+        // Nested loops AND an outer-scope constant. Inner expansion must
+        // substitute its own loop var plus the outer scope's PREFIX;
+        // outer expansion substitutes its own loop var over what remains.
+        let source = r###"
+RSpec.describe Combo do
+  PREFIX = "p"
+  %i[a b].each do |x|
+    %i[c d].each do |y|
+      describe "#{PREFIX}-#{x}-#{y}" do
+        it "tests" do
+        end
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/combo_spec.rb", rspec_framework()).expect("parsed");
+        let combo = &tree.root[0];
+        let names: Vec<&str> = combo.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["p-a-c", "p-a-d", "p-b-c", "p-b-d"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_reassigned_constant_uses_closest() {
+        // When a constant is assigned twice, the closer assignment (the
+        // one nearest to the each-loop in textual order) wins, matching
+        // Ruby runtime semantics.
+        let source = r###"
+RSpec.describe Reassigned do
+  PREFIX = "old"
+  PREFIX = "new"
+  %i[a b].each do |x|
+    describe "#{PREFIX}-#{x}" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/reassigned_spec.rb", rspec_framework()).expect("parsed");
+        let re = &tree.root[0];
+        let names: Vec<&str> = re.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["new-a", "new-b"]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_paired_array_arity_mismatch() {
+        // Ruby destructures by zip-truncation: when the tuple has more
+        // values than block params, extras are discarded; when fewer,
+        // missing placeholders survive unsubstituted.
+        let source = r###"
+RSpec.describe Mismatch do
+  [[1, "x", true], [2, "y", false]].each do |n, s|
+    describe "n=#{n} s=#{s}" do
+      it "tests" do
+      end
+    end
+  end
+
+  [[42]].each do |a, b|
+    describe "a=#{a} b=#{b}" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/mismatch_spec.rb", rspec_framework()).expect("parsed");
+        let mis = &tree.root[0];
+        let names: Vec<&str> = mis.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec![
+            "n=1 s=x",
+            "n=2 s=y",
+            "a=42 b=#{b}",
+        ]);
+    }
+
+    #[test]
+    fn parse_rspec_loop_expansion_splat_block_parameter_no_substitution() {
+        // `|*args|` splat parameters aren't plain identifiers, so we
+        // treat it as the no-parameter path: emit N copies without
+        // substitution. Matches M4 behavior.
+        let source = r###"
+RSpec.describe Splat do
+  %i[a b].each do |*args|
+    describe "static" do
+      it "tests" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "spec/splat_spec.rb", rspec_framework()).expect("parsed");
+        let splat = &tree.root[0];
+        assert_eq!(splat.children.len(), 2);
+        for child in &splat.children {
+            assert_eq!(child.name, "static");
+        }
+    }
+
+    #[test]
+    fn parse_minitest_loop_expansion_symbol_array() {
+        let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
+        let source = r###"
+class TestFoo < Minitest::Test
+  %i[one two].each do |n|
+    describe "##{n}" do
+      it "works" do
+      end
+    end
+  end
+end
+"###;
+        let tree = parse_file(source, "test/test_foo.rb", minitest).expect("parsed");
+        let foo_test = &tree.root[0];
+        assert_eq!(foo_test.kind, SpecKind::Group);
+        let names: Vec<&str> = foo_test.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["#one", "#two"]);
     }
 
     #[test]

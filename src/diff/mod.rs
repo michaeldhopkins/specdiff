@@ -961,6 +961,7 @@ mod tests {
             kind: SpecKind::Spec,
             children: vec![],
             parameterized: Some(crate::parse::ParamInfo { case_count: 3, labels: vec![] }),
+            name_is_dynamic: false,
         }];
         let head = vec![SpecNode {
             name: "validates email".into(),
@@ -968,6 +969,7 @@ mod tests {
             kind: SpecKind::Spec,
             children: vec![],
             parameterized: Some(crate::parse::ParamInfo { case_count: 5, labels: vec![] }),
+            name_is_dynamic: false,
         }];
         let diff = diff_spec_nodes(&base, &head);
         assert_eq!(diff.len(), 1);
@@ -984,6 +986,7 @@ mod tests {
             kind: SpecKind::Spec,
             children: vec![],
             parameterized: Some(crate::parse::ParamInfo { case_count: 2, labels: vec![] }),
+            name_is_dynamic: false,
         }];
         let head = vec![SpecNode {
             name: "validates password length".into(),
@@ -991,6 +994,7 @@ mod tests {
             kind: SpecKind::Spec,
             children: vec![],
             parameterized: Some(crate::parse::ParamInfo { case_count: 4, labels: vec![] }),
+            name_is_dynamic: false,
         }];
         let diff = diff_spec_nodes(&base, &head);
         assert_eq!(diff.len(), 1);
