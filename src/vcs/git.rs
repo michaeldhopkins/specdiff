@@ -125,7 +125,14 @@ impl Vcs for GitVcs {
     }
 
     fn default_base_rev(&self) -> String {
-        for candidate in ["main", "master"] {
+        for candidate in [
+            "origin/main",
+            "origin/master",
+            "upstream/main",
+            "upstream/master",
+            "main",
+            "master",
+        ] {
             if self.resolve_rev(candidate).is_ok() {
                 return candidate.to_string();
             }
@@ -256,6 +263,43 @@ mod tests {
         let (_dir, vcs) = create_test_repo();
         let result = vcs.file_at_revision(Path::new("nonexistent.rb"), "main");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn default_base_rev_prefers_origin_master_over_local_master() {
+        let (dir, _) = create_test_repo();
+
+        Command::new("git")
+            .args(["checkout", "-b", "master"])
+            .current_dir(dir.path())
+            .output()
+            .expect("create local master");
+
+        Command::new("git")
+            .args(["update-ref", "refs/remotes/origin/master", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("fake origin/master ref");
+
+        Command::new("git")
+            .args(["checkout", "feature"])
+            .current_dir(dir.path())
+            .output()
+            .expect("back to feature");
+
+        let vcs = GitVcs::open(dir.path()).expect("reopen");
+        assert_eq!(vcs.default_base_rev(), "origin/master");
+    }
+
+    #[test]
+    fn default_base_rev_falls_back_to_local_when_no_remote() {
+        let (dir, vcs) = create_test_repo();
+        let remote_dir = dir.path().join(".git/refs/remotes");
+        assert!(
+            !remote_dir.exists(),
+            "test repo must not have remotes for the fallback to be exercised"
+        );
+        assert_eq!(vcs.default_base_rev(), "main");
     }
 
     #[test]

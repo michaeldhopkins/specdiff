@@ -96,7 +96,14 @@ impl Vcs for JjVcs {
     }
 
     fn default_base_rev(&self) -> String {
-        for candidate in ["main", "master"] {
+        for candidate in [
+            "main@origin",
+            "master@origin",
+            "main@upstream",
+            "master@upstream",
+            "main",
+            "master",
+        ] {
             if run_jj(&self.root, &["log", "-r", candidate, "--no-graph", "--limit", "1"])
                 .is_ok()
             {
