@@ -213,7 +213,7 @@ fn collect_type_refs(
             "method_call" => {
                 let mut body_cursor = body.walk();
                 for child in body.children(&mut body_cursor) {
-                    if child.kind() != "call" && child.kind() != "call_expression" {
+                    if !crate::parse::engine::is_dsl_call_kind(child.kind()) {
                         continue;
                     }
                     let Some(method) = crate::parse::engine::extract_method_name(child, source)
@@ -265,7 +265,7 @@ fn scan_node(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if (child.kind() == "call" || child.kind() == "call_expression")
+        if crate::parse::engine::is_dsl_call_kind(child.kind())
             && let Some((name, specs)) = try_match_definition(child, source, framework, shared)
         {
             registry.register(name, specs);

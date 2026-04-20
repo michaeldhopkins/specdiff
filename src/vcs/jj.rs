@@ -142,3 +142,82 @@ impl Vcs for JjVcs {
         "@"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    fn create_test_repo() -> TempDir {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path();
+
+        Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().expect("git init");
+        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().expect("git config");
+        Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().expect("git config");
+        std::fs::write(path.join("README.md"), "hi\n").expect("write");
+        Command::new("git").args(["add", "-A"]).current_dir(path).output().expect("git add");
+        Command::new("git").args(["commit", "-m", "initial"]).current_dir(path).output().expect("git commit");
+
+        Command::new("jj").args(["git", "init", "--colocate"]).current_dir(path).output().expect("jj init");
+
+        dir
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn default_base_rev_prefers_main_at_origin_over_local_main() {
+        let dir = create_test_repo();
+
+        Command::new("git")
+            .args(["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("fake origin/main");
+
+        Command::new("jj")
+            .args(["git", "import"])
+            .current_dir(dir.path())
+            .output()
+            .expect("jj git import");
+
+        let vcs = JjVcs::new(dir.path().to_path_buf());
+        assert_eq!(vcs.default_base_rev(), "main@origin");
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn default_base_rev_falls_back_to_local_main_when_no_remote() {
+        let dir = create_test_repo();
+        let vcs = JjVcs::new(dir.path().to_path_buf());
+        assert_eq!(vcs.default_base_rev(), "main");
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn default_base_rev_prefers_origin_over_upstream() {
+        let dir = create_test_repo();
+
+        Command::new("git")
+            .args(["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("fake origin/main");
+
+        Command::new("git")
+            .args(["update-ref", "refs/remotes/upstream/main", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("fake upstream/main");
+
+        Command::new("jj")
+            .args(["git", "import"])
+            .current_dir(dir.path())
+            .output()
+            .expect("jj git import");
+
+        let vcs = JjVcs::new(dir.path().to_path_buf());
+        assert_eq!(vcs.default_base_rev(), "main@origin");
+    }
+}

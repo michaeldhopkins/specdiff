@@ -292,6 +292,26 @@ mod tests {
     }
 
     #[test]
+    fn default_base_rev_prefers_origin_over_upstream() {
+        let (dir, _) = create_test_repo();
+
+        Command::new("git")
+            .args(["update-ref", "refs/remotes/origin/main", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("fake origin/main ref");
+
+        Command::new("git")
+            .args(["update-ref", "refs/remotes/upstream/main", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("fake upstream/main ref");
+
+        let vcs = GitVcs::open(dir.path()).expect("reopen");
+        assert_eq!(vcs.default_base_rev(), "origin/main");
+    }
+
+    #[test]
     fn default_base_rev_falls_back_to_local_when_no_remote() {
         let (dir, vcs) = create_test_repo();
         let remote_dir = dir.path().join(".git/refs/remotes");

@@ -229,7 +229,7 @@ fn try_match_dsl_node(
     None
 }
 
-fn is_dsl_call_kind(kind: &str) -> bool {
+pub(crate) fn is_dsl_call_kind(kind: &str) -> bool {
     matches!(kind, "call" | "call_expression" | "function_call_expression")
 }
 
@@ -340,7 +340,7 @@ pub fn find_block(node: Node) -> Option<Node> {
                                 }
                             }
                         }
-                        "func_literal" | "anonymous_function" => {
+                        "func_literal" => {
                             return arg.child_by_field_name("body");
                         }
                         "argument" => {
@@ -1037,7 +1037,7 @@ fn collect_refs(
                 let Some(body) = body else { continue };
                 let mut body_cursor = body.walk();
                 for child in body.children(&mut body_cursor) {
-                    if child.kind() != "call" && child.kind() != "call_expression" {
+                    if !is_dsl_call_kind(child.kind()) {
                         continue;
                     }
                     let Some(method) = extract_method_name(child, source) else { continue };
@@ -1180,6 +1180,25 @@ end
         assert_eq!(associations.name, "associations");
         assert_eq!(associations.children.len(), 1);
         assert_eq!(associations.children[0].name, "has many posts");
+    }
+
+    #[test]
+    fn parse_rspec_escape_in_name_returns_full_raw_text() {
+        let source = r#"
+RSpec.describe User do
+  it "handles a \n newline in the name" do
+    expect(true).to be true
+  end
+end
+"#;
+        let tree = parse_file(source, "spec/models/user_spec.rb", rspec_framework()).expect("parsed");
+        let user = &tree.root[0];
+        assert_eq!(user.children.len(), 1);
+        assert_eq!(
+            user.children[0].name,
+            r#"handles a \n newline in the name"#,
+            "multi-chunk Ruby strings must return the full raw text, not just the first string_content child"
+        );
     }
 
     #[test]
