@@ -109,15 +109,17 @@ fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_
         }
     };
 
-    let param_suffix = node
-        .param_cases
-        .map(|n| format!(" [{n} cases]"))
-        .unwrap_or_default();
+    let param_suffix = match (node.old_param_cases, node.param_cases) {
+        (Some(old), Some(new)) => format!(" [{new} cases, was {old}]"),
+        (Some(old), None) => format!(" [was {old} cases]"),
+        (None, Some(n)) => format!(" [{n} cases]"),
+        (None, None) => String::new(),
+    };
 
     match node.kind {
         DiffKind::Renamed => {
             if let Some(old) = &node.old_name {
-                let _ = writeln!(output, "{color_start}{prefix} {indent}{old} -> {}{param_suffix}{color_end}", node.name);
+                let _ = writeln!(output, "{color_start}{prefix} {indent}{} (was {old}){param_suffix}{color_end}", node.name);
             } else {
                 let _ = writeln!(output, "{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name);
             }
@@ -151,7 +153,7 @@ fn collect_compact_lines(nodes: &[DiffNode], path: &[&str], output: &mut String)
             }
             DiffKind::Renamed => {
                 let old = node.old_name.as_deref().unwrap_or("?");
-                let _ = writeln!(output, "-> {old} -> {full_path}");
+                let _ = writeln!(output, "-> {full_path} (was {old})");
             }
             DiffKind::Modified | DiffKind::Unchanged => {}
         }
@@ -173,12 +175,14 @@ mod tests {
                     kind: DiffKind::Modified,
                     old_name: None,
                     param_cases: None,
+                    old_param_cases: None,
                     children: vec![
                         DiffNode {
                             name: "validates email".into(),
                             kind: DiffKind::Unchanged,
                             old_name: None,
                             param_cases: None,
+                            old_param_cases: None,
                             children: vec![],
                         },
                         DiffNode {
@@ -186,6 +190,7 @@ mod tests {
                             kind: DiffKind::Added,
                             old_name: None,
                             param_cases: None,
+                            old_param_cases: None,
                             children: vec![],
                         },
                     ],
@@ -195,11 +200,13 @@ mod tests {
                     kind: DiffKind::Unchanged,
                     old_name: None,
                     param_cases: None,
+                    old_param_cases: None,
                     children: vec![DiffNode {
                         name: "has many posts".into(),
                         kind: DiffKind::Unchanged,
                         old_name: None,
                         param_cases: None,
+                        old_param_cases: None,
                         children: vec![],
                     }],
                 },
@@ -259,6 +266,52 @@ mod tests {
     }
 
     #[test]
+    fn renamed_spec_with_param_delta_never_has_two_arrows_on_one_line() {
+        // OBS-3 guard: the rename line prefix uses "->"; the param suffix must
+        // not also use "->" or a reader would parse `-> old -> new [X -> Y]`
+        // as a triple rename. Suffix format: "[new cases, was old]".
+        let diffs = vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![DiffNode {
+                name: "validates shape".into(),
+                kind: DiffKind::Renamed,
+                old_name: Some("validates".into()),
+                param_cases: Some(5),
+                old_param_cases: Some(3),
+                children: vec![],
+            }],
+        }];
+        let output = format_tree(&diffs, false, false);
+        let rename_line = output
+            .lines()
+            .find(|l| l.contains("validates shape"))
+            .expect("rename line");
+        assert_eq!(
+            rename_line.matches("->").count(),
+            1,
+            "rename line must contain exactly one `->` (from the rename prefix), got: {rename_line}"
+        );
+        assert!(rename_line.contains("[5 cases, was 3]"));
+    }
+
+    #[test]
+    fn param_suffix_prose_was_only() {
+        let diffs = vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![DiffNode {
+                name: "lost parameters".into(),
+                kind: DiffKind::Modified,
+                old_name: None,
+                param_cases: None,
+                old_param_cases: Some(4),
+                children: vec![],
+            }],
+        }];
+        let output = format_tree(&diffs, false, false);
+        assert!(output.contains("[was 4 cases]"), "unparameterized spec should show prior count");
+    }
+
+    #[test]
     fn tree_format_no_changes_shows_message() {
         let diffs = vec![FileDiff {
             path: "models::user".into(),
@@ -267,6 +320,7 @@ mod tests {
                 kind: DiffKind::Unchanged,
                 old_name: None,
                 param_cases: None,
+                old_param_cases: None,
                 children: vec![],
             }],
         }];

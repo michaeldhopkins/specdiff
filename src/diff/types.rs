@@ -23,6 +23,8 @@ pub struct DiffNode {
     pub old_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub param_cases: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_param_cases: Option<usize>,
     pub children: Vec<DiffNode>,
 }
 
