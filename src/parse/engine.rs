@@ -106,7 +106,7 @@ fn try_match_inclusion(
 ) -> Option<Vec<SpecNode>> {
     let shared_def = framework.shared.as_ref()?;
 
-    if node.kind() != "call" && node.kind() != "call_expression" {
+    if !is_dsl_call_kind(node.kind()) {
         return None;
     }
 
@@ -177,7 +177,7 @@ fn try_match_dsl_node(
     framework: &FrameworkDef,
     shared: Option<&SharedExampleRegistry>,
 ) -> Option<SpecNode> {
-    if node.kind() != "call" && node.kind() != "call_expression" {
+    if !is_dsl_call_kind(node.kind()) {
         return None;
     }
 
@@ -229,6 +229,10 @@ fn try_match_dsl_node(
     None
 }
 
+fn is_dsl_call_kind(kind: &str) -> bool {
+    matches!(kind, "call" | "call_expression" | "function_call_expression")
+}
+
 pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
     match node.kind() {
         "call" => {
@@ -254,6 +258,10 @@ pub fn extract_method_name(node: Node, source: &str) -> Option<String> {
             }
             node_text(function_node, source)
         }
+        "function_call_expression" => {
+            let function_node = node.child_by_field_name("function")?;
+            node_text(function_node, source)
+        }
         _ => None,
     }
 }
@@ -277,7 +285,7 @@ pub fn extract_name(
     match name_source {
         "first_argument" => {
             let args = find_arguments(node)?;
-            let first_arg = args.named_child(0)?;
+            let first_arg = unwrap_php_argument(args.named_child(0)?);
             match name_source_type {
                 Some("string_literal") => extract_string_content(first_arg, source),
                 Some("constant") => node_text(first_arg, source),
@@ -290,6 +298,18 @@ pub fn extract_name(
         }
         _ => None,
     }
+}
+
+fn unwrap_php_argument(node: Node) -> Node {
+    if node.kind() == "argument" {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.is_named() {
+                return child;
+            }
+        }
+    }
+    node
 }
 
 fn find_arguments(node: Node) -> Option<Node> {
@@ -320,8 +340,16 @@ pub fn find_block(node: Node) -> Option<Node> {
                                 }
                             }
                         }
-                        "func_literal" => {
+                        "func_literal" | "anonymous_function" => {
                             return arg.child_by_field_name("body");
+                        }
+                        "argument" => {
+                            let mut c3 = arg.walk();
+                            for inner in arg.children(&mut c3) {
+                                if inner.kind() == "anonymous_function" {
+                                    return inner.child_by_field_name("body");
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -335,21 +363,31 @@ pub fn find_block(node: Node) -> Option<Node> {
 
 fn extract_string_content(node: Node, source: &str) -> Option<String> {
     match node.kind() {
-        "string" | "string_literal" | "interpreted_string_literal" => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                match child.kind() {
-                    "string_content"
-                    | "string_fragment"
-                    | "interpreted_string_literal_content"
-                    | "quoted_content" => {
-                        return node_text(child, source);
-                    }
-                    _ => {}
+        "string" | "string_literal" | "interpreted_string_literal" | "encapsed_string" => {
+            let content_children: Vec<Node> = {
+                let mut cursor = node.walk();
+                node.children(&mut cursor)
+                    .filter(|c| matches!(
+                        c.kind(),
+                        "string_content"
+                            | "string_fragment"
+                            | "interpreted_string_literal_content"
+                            | "quoted_content"
+                    ))
+                    .collect()
+            };
+
+            match content_children.len() {
+                0 => {
+                    let text = node_text(node, source)?;
+                    Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
+                }
+                1 => node_text(content_children[0], source),
+                _ => {
+                    let text = node_text(node, source)?;
+                    Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
                 }
             }
-            let text = node_text(node, source)?;
-            Some(text.trim_matches(|c| c == '"' || c == '\'').to_string())
         }
         _ => None,
     }
@@ -726,6 +764,7 @@ fn detect_parameterization(
             "attribute" => count_rust_case_attributes(node, source, param_def.attribute_name.as_deref()?),
             "decorator" => count_python_parametrize_cases(node, source, param_def.decorator_name.as_deref()?),
             "method_call" => count_jest_each_cases(node, source, &param_def.method_names),
+            "chained_method" => count_pest_chained_dataset(node, source, &param_def.method_names),
             _ => None,
         };
         if let Some(count) = count
@@ -852,6 +891,46 @@ fn count_python_parametrize_cases(node: Node, source: &str, decorator_name: &str
                 if items > 0 {
                     return Some(items);
                 }
+            }
+        }
+    }
+    None
+}
+
+fn count_pest_chained_dataset(node: Node, source: &str, method_names: &[String]) -> Option<usize> {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        if parent.kind() != "member_call_expression" {
+            return None;
+        }
+        if parent.child_by_field_name("object")?.id() != current.id() {
+            return None;
+        }
+        let name_node = parent.child_by_field_name("name")?;
+        let method = node_text(name_node, source)?;
+        if method_names.contains(&method)
+            && let Some(count) = count_array_argument(parent)
+        {
+            return Some(count);
+        }
+        current = parent;
+    }
+    None
+}
+
+fn count_array_argument(call: Node) -> Option<usize> {
+    let args = call.child_by_field_name("arguments")?;
+    let mut ac = args.walk();
+    for arg in args.children(&mut ac) {
+        let inner = unwrap_php_argument(arg);
+        if inner.kind() == "array_creation_expression" {
+            let mut ic = inner.walk();
+            let items = inner
+                .children(&mut ic)
+                .filter(|c| c.kind() == "array_element_initializer")
+                .count();
+            if items > 0 {
+                return Some(items);
             }
         }
     }
@@ -1816,5 +1895,92 @@ func TestValidate(t *testing.T) {
         assert_eq!(admin.kind, SpecKind::Group);
         assert_eq!(admin.children.len(), 1);
         assert_eq!(admin.children[0].name, "Admin");
+    }
+
+    fn pest_framework() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "pest").expect("pest")
+    }
+
+    #[test]
+    fn parse_pest_top_level_test_calls() {
+        let source = "<?php\n\ntest('software config loads', function () {\n    assert_true(true);\n});\n\nit('handles empty body', function () {\n    assert_eq(0, 0);\n});\n\nhelperFunction();\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        assert_eq!(tree.framework, "pest");
+        let names: Vec<&str> = tree.root.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["software config loads", "handles empty body"]);
+        for node in &tree.root {
+            assert_eq!(node.kind, SpecKind::Spec);
+        }
+    }
+
+    #[test]
+    fn parse_pest_double_quoted_names() {
+        let source = "<?php\n\ntest(\"double quoted spec\", function () {});\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+        assert_eq!(tree.root[0].name, "double quoted spec");
+    }
+
+    #[test]
+    fn parse_pest_describe_groups_nested_tests() {
+        let source = "<?php\n\ndescribe('User', function () {\n    test('is created', function () {});\n    it('can be deleted', function () {});\n});\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+        let user = &tree.root[0];
+        assert_eq!(user.name, "User");
+        assert_eq!(user.kind, SpecKind::Group);
+        let child_names: Vec<&str> = user.children.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(child_names, vec!["is created", "can be deleted"]);
+    }
+
+    #[test]
+    fn parse_pest_ignores_non_test_function_calls() {
+        let source = "<?php\n\nrequire_once 'helpers.php';\nsome_helper('not a test');\ntest('real test', function () {});\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+        assert_eq!(tree.root[0].name, "real test");
+    }
+
+    #[test]
+    fn parse_pest_ignores_lifecycle_hooks_and_uses() {
+        let source = "<?php\n\nuses(TestCase::class)->in('Feature');\nbeforeEach(function () {});\nafterEach(function () {});\nbeforeAll(function () {});\nafterAll(function () {});\ntest('only real spec', function () {});\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        let names: Vec<&str> = tree.root.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["only real spec"], "hooks and uses must not become specs");
+    }
+
+    #[test]
+    fn parse_pest_preserves_interpolated_test_name() {
+        let source = "<?php\n\ntest(\"user $name is created\", function () {});\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+        assert_eq!(tree.root[0].name, "user $name is created");
+    }
+
+    #[test]
+    fn parse_pest_chained_modifier_still_yields_spec() {
+        let source = "<?php\n\ntest('x', function () {})->skip();\ntest('y', function () {})->throws(Exception::class);\ntest('z', function () {})->group('api')->skip();\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        let names: Vec<&str> = tree.root.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["x", "y", "z"]);
+    }
+
+    #[test]
+    fn parse_pest_with_dataset_counts_cases() {
+        let source = "<?php\n\ntest('validates email', function ($email) {})->with(['a@b.com', 'c@d.com', 'e@f.com']);\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        assert_eq!(tree.root.len(), 1);
+        let spec = &tree.root[0];
+        assert_eq!(spec.name, "validates email");
+        let param = spec.parameterized.as_ref().expect("parameterized info");
+        assert_eq!(param.case_count, 3);
+    }
+
+    #[test]
+    fn parse_pest_with_dataset_survives_chained_skip() {
+        let source = "<?php\n\ntest('validates email', fn ($e) => $e)->with(['a@b.com', 'c@d.com'])->skip();\n";
+        let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
+        let param = tree.root[0].parameterized.as_ref().expect("parameterized info");
+        assert_eq!(param.case_count, 2);
     }
 }

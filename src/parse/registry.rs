@@ -488,6 +488,27 @@ mod tests {
     }
 
     #[test]
+    fn pest_matches_flat_php_test_files() {
+        let matches = frameworks_for_file(Path::new("tests/run.php"));
+        assert!(matches.iter().any(|f| f.name == "pest"), "tests/run.php should match pest");
+        assert!(!matches.iter().any(|f| f.name == "phpunit"), "tests/run.php must not match phpunit");
+    }
+
+    #[test]
+    fn phpunit_style_files_do_not_match_pest() {
+        let matches = frameworks_for_file(Path::new("tests/UserTest.php"));
+        assert!(!matches.iter().any(|f| f.name == "pest"), "UserTest.php must not match pest");
+        assert!(matches.iter().any(|f| f.name == "phpunit"), "UserTest.php should match phpunit");
+    }
+
+    #[test]
+    fn normalize_pest_path() {
+        let pest = all_frameworks().iter().find(|f| f.name == "pest").expect("pest");
+        assert_eq!(normalize_file_path("tests/run.php", pest), "run");
+        assert_eq!(normalize_file_path("tests/feature/releases.php", pest), "feature::releases");
+    }
+
+    #[test]
     fn normalize_double_suffixed_jest_path() {
         let jest = all_frameworks().iter().find(|f| f.name == "jest").expect("jest");
         assert_eq!(normalize_file_path("__tests__/user.test.spec.js", jest), "user");

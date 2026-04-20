@@ -1,0 +1,49 @@
+[[framework]]
+name = "pest"
+language = "php"
+tree_sitter_crate = "tree-sitter-php"
+description = "Pest — PHP testing framework with top-level test()/it()/describe() DSL"
+
+[framework.files]
+extensions = [".php"]
+include_globs = [
+    "tests/**/*.php",
+    "test/**/*.php",
+]
+exclude_globs = [
+    "tests/**/*Test.php",
+    "tests/**/*_test.php",
+    "test/**/*Test.php",
+    "test/**/*_test.php",
+]
+require_ast_confirmation = false
+
+[framework.ast_kinds]
+function = "function_definition"
+body_field = "body"
+name_field = "name"
+
+[[framework.group]]
+ast_type = "function_call_expression"
+method_names = ["describe"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.spec]]
+ast_type = "function_call_expression"
+method_names = ["test", "it"]
+name_source = "first_argument"
+name_source_type = "string_literal"
+
+[[framework.parameterized]]
+detection = "chained_method"
+method_names = ["with"]
+case_count_type = "array_length"
+
+[framework.normalization]
+raw = true
+
+[framework.path_grouping]
+strip_prefixes = ["tests/", "test/"]
+separator = "::"
+strip_extension = true
