@@ -6,7 +6,7 @@ pub struct FileDiff {
     pub nodes: Vec<DiffNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum DiffKind {
     Added,
     Removed,

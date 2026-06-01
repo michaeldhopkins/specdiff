@@ -73,7 +73,12 @@ fn cli_print_tree_rspec_fixtures() {
 
     Command::cargo_bin("specdiff")
         .expect("binary")
-        .args(["--print", "--base-dir", base.to_str().expect("utf8"), "--head-dir", head.to_str().expect("utf8")])
+        .args([
+            "--print",
+            "--base-dir", base.to_str().expect("utf8"),
+            "--head-dir", head.to_str().expect("utf8"),
+            "--full-context",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("validates email format"))
@@ -199,6 +204,94 @@ fn cli_print_filter() {
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
     assert!(stdout.contains("admin"), "should show admin specs");
     assert!(!stdout.contains("validates email"), "should not show non-matching specs");
+}
+
+#[test]
+fn cli_print_truncates_long_unchanged_run_by_default() {
+    let base_dir = tempfile::TempDir::new().expect("base tempdir");
+    let head_dir = tempfile::TempDir::new().expect("head tempdir");
+
+    let mut spec = String::from("RSpec.describe Thing do\n");
+    for i in 0..10 {
+        spec.push_str(&format!("  it 'unchanged spec {i}' do\n  end\n"));
+    }
+    spec.push_str("end\n");
+
+    let mut head_spec = spec.clone();
+    head_spec.insert_str(
+        head_spec.rfind("end\n").expect("end"),
+        "  it 'brand new spec' do\n  end\n",
+    );
+
+    let base_spec_path = base_dir.path().join("spec").join("thing_spec.rb");
+    let head_spec_path = head_dir.path().join("spec").join("thing_spec.rb");
+    std::fs::create_dir_all(base_spec_path.parent().expect("parent")).expect("mkdir");
+    std::fs::create_dir_all(head_spec_path.parent().expect("parent")).expect("mkdir");
+    std::fs::write(&base_spec_path, &spec).expect("write base");
+    std::fs::write(&head_spec_path, &head_spec).expect("write head");
+
+    let output = Command::cargo_bin("specdiff")
+        .expect("binary")
+        .args([
+            "--print",
+            "--base-dir", base_dir.path().to_str().expect("utf8"),
+            "--head-dir", head_dir.path().to_str().expect("utf8"),
+            "--no-color",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(stdout.contains("hidden line"), "default mode should emit truncation ellipsis: {stdout}");
+    assert!(stdout.contains("brand new spec"), "changed spec must survive truncation");
+    assert!(stdout.contains("unchanged spec 0"), "head context preserved");
+    assert!(!stdout.contains("unchanged spec 4"), "middle of run truncated");
+}
+
+#[test]
+fn cli_print_full_context_disables_truncation() {
+    let base_dir = tempfile::TempDir::new().expect("base tempdir");
+    let head_dir = tempfile::TempDir::new().expect("head tempdir");
+
+    let mut spec = String::from("RSpec.describe Thing do\n");
+    for i in 0..10 {
+        spec.push_str(&format!("  it 'unchanged spec {i}' do\n  end\n"));
+    }
+    spec.push_str("end\n");
+
+    let mut head_spec = spec.clone();
+    head_spec.insert_str(
+        head_spec.rfind("end\n").expect("end"),
+        "  it 'brand new spec' do\n  end\n",
+    );
+
+    let base_spec_path = base_dir.path().join("spec").join("thing_spec.rb");
+    let head_spec_path = head_dir.path().join("spec").join("thing_spec.rb");
+    std::fs::create_dir_all(base_spec_path.parent().expect("parent")).expect("mkdir");
+    std::fs::create_dir_all(head_spec_path.parent().expect("parent")).expect("mkdir");
+    std::fs::write(&base_spec_path, &spec).expect("write base");
+    std::fs::write(&head_spec_path, &head_spec).expect("write head");
+
+    let output = Command::cargo_bin("specdiff")
+        .expect("binary")
+        .args([
+            "--print",
+            "--base-dir", base_dir.path().to_str().expect("utf8"),
+            "--head-dir", head_dir.path().to_str().expect("utf8"),
+            "--no-color",
+            "--full-context",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(!stdout.contains("hidden line"), "--full-context must suppress truncation");
+    for i in 0..10 {
+        assert!(
+            stdout.contains(&format!("unchanged spec {i}")),
+            "every unchanged spec preserved with --full-context: missing {i}"
+        );
+    }
 }
 
 #[test]

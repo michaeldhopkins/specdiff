@@ -26,6 +26,7 @@ struct AppState {
     scroll: usize,
     section_offsets: Vec<usize>,
     changed_only: bool,
+    full_context: bool,
     filter: Option<String>,
     quit: bool,
     needs_redraw: bool,
@@ -33,6 +34,15 @@ struct AppState {
     cached_merge_base: Option<String>,
     merge_base_time: std::time::Instant,
     shared_registry: Option<crate::parse::shared::SharedExampleRegistry>,
+}
+
+impl AppState {
+    fn render_opts(&self) -> render::RenderOptions {
+        render::RenderOptions {
+            changed_only: self.changed_only,
+            full_context: self.full_context,
+        }
+    }
 }
 
 enum WatchMode<'a> {
@@ -190,6 +200,7 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
         section_offsets: vec![],
         max_scroll: 0,
         changed_only: cli.changed_only,
+        full_context: cli.full_context,
         filter: cli.filter.clone(),
         quit: false,
         needs_redraw: true,
@@ -229,8 +240,9 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
         } else {
             &state.file_diffs
         };
+        let opts = state.render_opts();
         terminal.draw(|frame| {
-            render::render(frame, diffs, state.scroll, state.changed_only);
+            render::render(frame, diffs, state.scroll, opts);
         })?;
 
         let registry = mode.build_registry(&mut state, cli);
@@ -297,8 +309,9 @@ fn run_event_loop(
                 &state.file_diffs
             };
             let mut result = render::RenderResult { section_offsets: vec![], max_scroll: 0 };
+            let opts = state.render_opts();
             terminal.draw(|frame| {
-                result = render::render(frame, diffs, state.scroll, state.changed_only);
+                result = render::render(frame, diffs, state.scroll, opts);
             })?;
             state.section_offsets = result.section_offsets;
             state.max_scroll = result.max_scroll;
@@ -488,6 +501,7 @@ mod tests {
             section_offsets: vec![],
             max_scroll: 0,
             changed_only: false,
+            full_context: false,
             filter: None,
             quit: false,
             needs_redraw: false,

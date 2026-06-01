@@ -19,6 +19,9 @@ pub struct Cli {
     #[arg(long, help = "Only show changed specs")]
     pub changed_only: bool,
 
+    #[arg(long, help = "Show every unchanged spec line (no context truncation)")]
+    pub full_context: bool,
+
     #[arg(long, help = "Force a specific framework")]
     pub framework: Option<String>,
 

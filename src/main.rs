@@ -86,7 +86,14 @@ fn render_output(file_diffs: &[diff::types::FileDiff], cli: &cli::Cli) -> Result
     };
 
     let output_str = match cli.format {
-        cli::OutputFormat::Tree => output::format_tree(&file_diffs, cli.changed_only, !cli.no_color),
+        cli::OutputFormat::Tree => {
+            let opts = output::TreeOptions {
+                changed_only: cli.changed_only,
+                color: !cli.no_color,
+                full_context: cli.full_context,
+            };
+            output::format_tree(&file_diffs, opts)
+        }
         cli::OutputFormat::Json => output::format_json(&file_diffs)
             .context("failed to serialize JSON")?,
         cli::OutputFormat::Compact => output::format_compact(&file_diffs),

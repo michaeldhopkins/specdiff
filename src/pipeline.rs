@@ -433,6 +433,7 @@ mod tests {
             no_color: true,
             base_dir: None,
             head_dir: None,
+            full_context: false,
         }
     }
 

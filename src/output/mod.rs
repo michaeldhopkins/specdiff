@@ -1,6 +1,9 @@
+pub mod truncate;
+
 use crate::diff::types::{DiffKind, DiffNode, FileDiff, Stats};
 use std::fmt::Write;
 use std::io::IsTerminal;
+use truncate::{truncate_unchanged_runs, CONTEXT_HEAD, CONTEXT_TAIL};
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -10,70 +13,63 @@ const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 
+#[derive(Clone, Copy, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct TreeOptions {
+    pub changed_only: bool,
+    pub color: bool,
+    pub full_context: bool,
+}
+
+#[derive(Clone, Copy)]
+enum LineKind {
+    Spec(DiffKind),
+    Other,
+    Ellipsis(usize),
+}
+
+struct RenderedLine {
+    kind: LineKind,
+    text: String,
+}
+
 pub fn format_json(file_diffs: &[FileDiff]) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(file_diffs)?)
 }
 
-pub fn format_tree(file_diffs: &[FileDiff], changed_only: bool, color: bool) -> String {
-    let use_color = color
+pub fn format_tree(file_diffs: &[FileDiff], opts: TreeOptions) -> String {
+    let use_color = opts.color
         && std::io::stdout().is_terminal()
         && std::env::var_os("NO_COLOR").is_none();
-    let mut output = String::new();
 
-    let stats = Stats::from_file_diffs(file_diffs);
-    if !stats.is_empty() {
-        if use_color {
-            let _ = write!(output, "{BOLD}");
-        }
-        let _ = write!(output, "specdiff");
-        if use_color {
-            let _ = write!(output, "{RESET}");
-        }
-        let _ = write!(output, "  ");
-        if stats.added > 0 {
-            let _ = write!(output, "{}", if use_color { GREEN } else { "" });
-            let _ = write!(output, "+{}", stats.added);
-            let _ = write!(output, "{}", if use_color { RESET } else { "" });
-            let _ = write!(output, " ");
-        }
-        if stats.removed > 0 {
-            let _ = write!(output, "{}", if use_color { RED } else { "" });
-            let _ = write!(output, "-{}", stats.removed);
-            let _ = write!(output, "{}", if use_color { RESET } else { "" });
-            let _ = write!(output, " ");
-        }
-        if stats.renamed > 0 {
-            let _ = write!(output, "{}", if use_color { YELLOW } else { "" });
-            let _ = write!(output, "~>{}", stats.renamed);
-            let _ = write!(output, "{}", if use_color { RESET } else { "" });
-            let _ = write!(output, " ");
-        }
-        if stats.modified > 0 {
-            let _ = write!(output, "{}", if use_color { CYAN } else { "" });
-            let _ = write!(output, "~{}", stats.modified);
-            let _ = write!(output, "{}", if use_color { RESET } else { "" });
-        }
-        let _ = writeln!(output);
-        let _ = writeln!(output);
-    }
+    let mut lines: Vec<RenderedLine> = Vec::new();
+    push_stats_header(&mut lines, file_diffs, use_color);
 
     for file_diff in file_diffs {
         let file_has_changes = file_diff.nodes.iter().any(DiffNode::has_changes);
-        if changed_only && !file_has_changes {
+        if opts.changed_only && !file_has_changes {
             continue;
         }
-
-        if use_color {
-            let _ = writeln!(output, "{BOLD}  {}{RESET}", file_diff.path);
-        } else {
-            let _ = writeln!(output, "  {}", file_diff.path);
-        }
-
+        push_file_header(&mut lines, &file_diff.path, use_color);
         for node in &file_diff.nodes {
-            format_tree_node(node, &mut output, 1, changed_only, use_color);
+            push_tree_node(node, &mut lines, 1, opts.changed_only, use_color);
         }
     }
 
+    if !opts.changed_only && !opts.full_context {
+        truncate_unchanged_runs(
+            &mut lines,
+            CONTEXT_HEAD,
+            CONTEXT_TAIL,
+            |line| matches!(line.kind, LineKind::Spec(DiffKind::Unchanged)),
+            |hidden| make_ellipsis_line(hidden, use_color),
+        );
+    }
+
+    let mut output = String::new();
+    for line in lines {
+        let _ = writeln!(output, "{}", line.text);
+    }
     output
 }
 
@@ -85,7 +81,79 @@ pub fn format_compact(file_diffs: &[FileDiff]) -> String {
     output
 }
 
-fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_only: bool, color: bool) {
+fn push_stats_header(lines: &mut Vec<RenderedLine>, file_diffs: &[FileDiff], use_color: bool) {
+    let stats = Stats::from_file_diffs(file_diffs);
+    if stats.is_empty() {
+        return;
+    }
+    let mut text = String::new();
+    if use_color {
+        let _ = write!(text, "{BOLD}");
+    }
+    let _ = write!(text, "specdiff");
+    if use_color {
+        let _ = write!(text, "{RESET}");
+    }
+    let _ = write!(text, "  ");
+    if stats.added > 0 {
+        push_stat(&mut text, GREEN, '+', stats.added, use_color);
+    }
+    if stats.removed > 0 {
+        push_stat(&mut text, RED, '-', stats.removed, use_color);
+    }
+    if stats.renamed > 0 {
+        push_stat_str(&mut text, YELLOW, "~>", stats.renamed, use_color);
+    }
+    if stats.modified > 0 {
+        push_stat(&mut text, CYAN, '~', stats.modified, use_color);
+    }
+    lines.push(RenderedLine { kind: LineKind::Other, text });
+    lines.push(RenderedLine { kind: LineKind::Other, text: String::new() });
+}
+
+fn push_stat(text: &mut String, color: &str, glyph: char, count: usize, use_color: bool) {
+    if use_color {
+        let _ = write!(text, "{color}{glyph}{count}{RESET} ");
+    } else {
+        let _ = write!(text, "{glyph}{count} ");
+    }
+}
+
+fn push_stat_str(text: &mut String, color: &str, glyph: &str, count: usize, use_color: bool) {
+    if use_color {
+        let _ = write!(text, "{color}{glyph}{count}{RESET} ");
+    } else {
+        let _ = write!(text, "{glyph}{count} ");
+    }
+}
+
+fn push_file_header(lines: &mut Vec<RenderedLine>, path: &str, use_color: bool) {
+    let text = if use_color {
+        format!("{BOLD}  {path}{RESET}")
+    } else {
+        format!("  {path}")
+    };
+    lines.push(RenderedLine { kind: LineKind::Other, text });
+}
+
+fn make_ellipsis_line(hidden: usize, use_color: bool) -> RenderedLine {
+    let plural = if hidden == 1 { "" } else { "s" };
+    let body = format!("    ... ({hidden} hidden line{plural})");
+    let text = if use_color {
+        format!("{DIM}{body}{RESET}")
+    } else {
+        body
+    };
+    RenderedLine { kind: LineKind::Ellipsis(hidden), text }
+}
+
+fn push_tree_node(
+    node: &DiffNode,
+    lines: &mut Vec<RenderedLine>,
+    depth: usize,
+    changed_only: bool,
+    color: bool,
+) {
     if changed_only && node.kind == DiffKind::Unchanged && !node.has_changes() {
         return;
     }
@@ -116,21 +184,21 @@ fn format_tree_node(node: &DiffNode, output: &mut String, depth: usize, changed_
         (None, None) => String::new(),
     };
 
-    match node.kind {
+    let text = match node.kind {
         DiffKind::Renamed => {
             if let Some(old) = &node.old_name {
-                let _ = writeln!(output, "{color_start}{prefix} {indent}{} (was {old}){param_suffix}{color_end}", node.name);
+                format!("{color_start}{prefix} {indent}{} (was {old}){param_suffix}{color_end}", node.name)
             } else {
-                let _ = writeln!(output, "{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name);
+                format!("{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name)
             }
         }
-        _ => {
-            let _ = writeln!(output, "{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name);
-        }
-    }
+        _ => format!("{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name),
+    };
+
+    lines.push(RenderedLine { kind: LineKind::Spec(node.kind), text });
 
     for child in &node.children {
-        format_tree_node(child, output, depth + 1, changed_only, color);
+        push_tree_node(child, lines, depth + 1, changed_only, color);
     }
 }
 
@@ -166,6 +234,36 @@ fn collect_compact_lines(nodes: &[DiffNode], path: &[&str], output: &mut String)
 mod tests {
     use super::*;
 
+    fn opts_plain(changed_only: bool) -> TreeOptions {
+        TreeOptions { changed_only, color: false, full_context: true }
+    }
+
+    fn opts_truncating() -> TreeOptions {
+        TreeOptions { changed_only: false, color: false, full_context: false }
+    }
+
+    fn unchanged(name: &str) -> DiffNode {
+        DiffNode {
+            name: name.into(),
+            kind: DiffKind::Unchanged,
+            old_name: None,
+            param_cases: None,
+            old_param_cases: None,
+            children: vec![],
+        }
+    }
+
+    fn added(name: &str) -> DiffNode {
+        DiffNode {
+            name: name.into(),
+            kind: DiffKind::Added,
+            old_name: None,
+            param_cases: None,
+            old_param_cases: None,
+            children: vec![],
+        }
+    }
+
     fn sample_file_diffs() -> Vec<FileDiff> {
         vec![FileDiff {
             path: "models::user".into(),
@@ -177,22 +275,8 @@ mod tests {
                     param_cases: None,
                     old_param_cases: None,
                     children: vec![
-                        DiffNode {
-                            name: "validates email".into(),
-                            kind: DiffKind::Unchanged,
-                            old_name: None,
-                            param_cases: None,
-                            old_param_cases: None,
-                            children: vec![],
-                        },
-                        DiffNode {
-                            name: "validates uniqueness".into(),
-                            kind: DiffKind::Added,
-                            old_name: None,
-                            param_cases: None,
-                            old_param_cases: None,
-                            children: vec![],
-                        },
+                        unchanged("validates email"),
+                        added("validates uniqueness"),
                     ],
                 },
                 DiffNode {
@@ -201,14 +285,7 @@ mod tests {
                     old_name: None,
                     param_cases: None,
                     old_param_cases: None,
-                    children: vec![DiffNode {
-                        name: "has many posts".into(),
-                        kind: DiffKind::Unchanged,
-                        old_name: None,
-                        param_cases: None,
-                        old_param_cases: None,
-                        children: vec![],
-                    }],
+                    children: vec![unchanged("has many posts")],
                 },
             ],
         }]
@@ -216,7 +293,7 @@ mod tests {
 
     #[test]
     fn tree_format_shows_file_path() {
-        let output = format_tree(&sample_file_diffs(), false, false);
+        let output = format_tree(&sample_file_diffs(), opts_plain(false));
         assert!(output.contains("models::user"), "should show file path header");
         assert!(output.contains("validations"), "should show group");
         assert!(output.contains("validates uniqueness"), "should show added spec");
@@ -224,14 +301,14 @@ mod tests {
 
     #[test]
     fn tree_format_shows_stats_header() {
-        let output = format_tree(&sample_file_diffs(), false, false);
+        let output = format_tree(&sample_file_diffs(), opts_plain(false));
         assert!(output.contains("specdiff"), "should show header");
         assert!(output.contains("+1"), "should show added count (leaf specs only)");
     }
 
     #[test]
     fn tree_format_changed_only() {
-        let output = format_tree(&sample_file_diffs(), true, false);
+        let output = format_tree(&sample_file_diffs(), opts_plain(true));
         assert!(output.contains("models::user"));
         assert!(output.contains("validations"));
         assert!(output.contains("validates uniqueness"));
@@ -254,22 +331,19 @@ mod tests {
 
     #[test]
     fn tree_format_no_color_has_no_escape_codes() {
-        let output = format_tree(&sample_file_diffs(), false, false);
+        let output = format_tree(&sample_file_diffs(), opts_plain(false));
         assert!(!output.contains("\x1b["), "no-color output should not contain ANSI codes");
     }
 
     #[test]
     fn tree_format_empty_diffs_no_stats() {
-        let output = format_tree(&[], false, false);
+        let output = format_tree(&[], opts_plain(false));
         assert!(!output.contains("+0"), "empty diffs should not show +0");
         assert!(!output.contains("-0"), "empty diffs should not show -0");
     }
 
     #[test]
     fn renamed_spec_with_param_delta_never_has_two_arrows_on_one_line() {
-        // OBS-3 guard: the rename line prefix uses "->"; the param suffix must
-        // not also use "->" or a reader would parse `-> old -> new [X -> Y]`
-        // as a triple rename. Suffix format: "[new cases, was old]".
         let diffs = vec![FileDiff {
             path: "m::u".into(),
             nodes: vec![DiffNode {
@@ -281,7 +355,7 @@ mod tests {
                 children: vec![],
             }],
         }];
-        let output = format_tree(&diffs, false, false);
+        let output = format_tree(&diffs, opts_plain(false));
         let rename_line = output
             .lines()
             .find(|l| l.contains("validates shape"))
@@ -307,7 +381,7 @@ mod tests {
                 children: vec![],
             }],
         }];
-        let output = format_tree(&diffs, false, false);
+        let output = format_tree(&diffs, opts_plain(false));
         assert!(output.contains("[was 4 cases]"), "unparameterized spec should show prior count");
     }
 
@@ -324,7 +398,135 @@ mod tests {
                 children: vec![],
             }],
         }];
-        let output = format_tree(&diffs, false, false);
+        let output = format_tree(&diffs, opts_plain(false));
         assert!(!output.contains("+0"), "all-unchanged should not show +0");
+    }
+
+    fn diffs_with_long_unchanged_run() -> Vec<FileDiff> {
+        let mut children: Vec<DiffNode> = (0..10).map(|i| unchanged(&format!("ctx {i}"))).collect();
+        children.push(added("new spec"));
+        vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![DiffNode {
+                name: "group".into(),
+                kind: DiffKind::Modified,
+                old_name: None,
+                param_cases: None,
+                old_param_cases: None,
+                children,
+            }],
+        }]
+    }
+
+    #[test]
+    fn truncation_default_collapses_long_unchanged_run() {
+        let output = format_tree(&diffs_with_long_unchanged_run(), opts_truncating());
+        assert!(output.contains("ctx 0"), "first head line kept");
+        assert!(output.contains("ctx 1"));
+        assert!(output.contains("ctx 2"));
+        assert!(!output.contains("ctx 3"), "middle of run dropped");
+        assert!(!output.contains("ctx 4"));
+        assert!(!output.contains("ctx 5"));
+        assert!(!output.contains("ctx 6"));
+        assert!(!output.contains("ctx 7"));
+        assert!(output.contains("ctx 8"), "tail line kept");
+        assert!(output.contains("ctx 9"));
+        assert!(output.contains("... (5 hidden lines)"), "ellipsis line with count");
+        assert!(output.contains("new spec"), "changed line still present");
+        let new_spec_line = output
+            .lines()
+            .find(|l| l.contains("new spec"))
+            .expect("new spec line");
+        assert!(new_spec_line.trim_start().starts_with('+'), "new spec rendered as Added");
+    }
+
+    #[test]
+    fn truncation_full_context_flag_disables_truncation() {
+        let opts = TreeOptions { changed_only: false, color: false, full_context: true };
+        let output = format_tree(&diffs_with_long_unchanged_run(), opts);
+        for i in 0..10 {
+            assert!(output.contains(&format!("ctx {i}")), "--full-context shows ctx {i}");
+        }
+        assert!(!output.contains("hidden line"), "no ellipsis with --full-context");
+    }
+
+    #[test]
+    fn truncation_changed_only_drops_all_unchanged() {
+        let opts = TreeOptions { changed_only: true, color: false, full_context: false };
+        let output = format_tree(&diffs_with_long_unchanged_run(), opts);
+        for i in 0..10 {
+            assert!(!output.contains(&format!("ctx {i}")), "--changed-only drops ctx {i}");
+        }
+        assert!(!output.contains("hidden line"), "no ellipsis under --changed-only");
+        assert!(output.contains("new spec"));
+    }
+
+    #[test]
+    fn truncation_short_run_stays_intact() {
+        let mut children: Vec<DiffNode> = (0..5).map(|i| unchanged(&format!("ctx {i}"))).collect();
+        children.push(added("new"));
+        let diffs = vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![DiffNode {
+                name: "group".into(),
+                kind: DiffKind::Modified,
+                old_name: None,
+                param_cases: None,
+                old_param_cases: None,
+                children,
+            }],
+        }];
+        let output = format_tree(&diffs, opts_truncating());
+        for i in 0..5 {
+            assert!(output.contains(&format!("ctx {i}")), "short run keeps ctx {i}");
+        }
+        assert!(!output.contains("hidden line"), "no ellipsis below threshold");
+    }
+
+    #[test]
+    fn truncation_ellipsis_smallest_run_hides_two() {
+        let mut children: Vec<DiffNode> = (0..7).map(|i| unchanged(&format!("ctx {i}"))).collect();
+        children.push(added("new"));
+        let diffs = vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![DiffNode {
+                name: "group".into(),
+                kind: DiffKind::Modified,
+                old_name: None,
+                param_cases: None,
+                old_param_cases: None,
+                children,
+            }],
+        }];
+        let output = format_tree(&diffs, opts_truncating());
+        assert!(output.contains("... (2 hidden lines)"), "plural label for 2");
+    }
+
+    #[test]
+    fn truncation_preserves_file_headers_across_files() {
+        let make_file = |path: &str| FileDiff {
+            path: path.into(),
+            nodes: vec![DiffNode {
+                name: "group".into(),
+                kind: DiffKind::Modified,
+                old_name: None,
+                param_cases: None,
+                old_param_cases: None,
+                children: {
+                    let mut c: Vec<DiffNode> = (0..8).map(|i| unchanged(&format!("ctx {i}"))).collect();
+                    c.push(added("new"));
+                    c
+                },
+            }],
+        };
+        let diffs = vec![make_file("file_a"), make_file("file_b")];
+        let output = format_tree(&diffs, opts_truncating());
+        assert!(output.contains("file_a"), "first file header preserved");
+        assert!(output.contains("file_b"), "second file header preserved");
+        assert_eq!(
+            output.matches("hidden line").count(),
+            2,
+            "one ellipsis per file run"
+        );
     }
 }
