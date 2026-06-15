@@ -27,8 +27,7 @@ Show how the test outline of a project has changed on a branch. If you're good a
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew tap michaeldhopkins/tap
-brew install specdiff
+brew install michaeldhopkins/tap/specdiff
 ```
 
 ### From source
