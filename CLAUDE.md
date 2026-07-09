@@ -56,9 +56,15 @@ All tests must pass before committing.
 ## Linting
 
 cargo clippy --all-targets -- -D warnings
-cargo deny check licenses
+cargo deny check
 
 Must pass with no warnings before committing.
+
+`cargo deny check` runs the full suite (advisories, bans, licenses, sources), not
+just licenses. Security vulnerabilities are blockers: evaluate the fix and make
+the dependency bump (`cargo update -p <crate>` for a transitive dep). Only
+unmaintained/transitive advisories with no upstream fix may be ignored in
+`deny.toml`, each with a justifying comment.
 
 ## Development
 

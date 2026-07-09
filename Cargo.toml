@@ -1,6 +1,6 @@
 [package]
 name = "specdiff"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2024"
 rust-version = "1.91"
 license = "MIT OR Apache-2.0"
@@ -25,6 +25,7 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 git2 = { version = "0.19", features = ["vendored-openssl"] }
 glob = "0.3"
+ignore = "0.4"
 notify = "7"
 notify-debouncer-mini = "0.5"
 ratatui = "0.29"
@@ -41,7 +42,7 @@ tree-sitter-java = "0.23"
 tree-sitter-php = "0.24"
 tree-sitter-ruby = "0.23"
 tree-sitter-rust = "0.24"
-vcs-runner = "0.12"
+vcs-runner = "0.17.0"
 
 [dev-dependencies]
 assert_cmd = "2"

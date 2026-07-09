@@ -37,6 +37,47 @@ impl GitVcs {
     }
 }
 
+/// Files changed between a base commit and the on-disk working tree, via git2 —
+/// no jj command, so a colocated jj repo's operation log is never touched. Diffs
+/// the base tree straight against the working directory (index-independent, so a
+/// jj-colocated repo's possibly-stale git index can't skew it); untracked files
+/// count as additions, `.gitignore`d ones are excluded. `base_sha` is a git commit
+/// id (in a colocated repo, jj's `commit_id` is exactly that).
+pub(crate) fn changed_paths_to_workdir(repo_path: &Path, base_sha: &str) -> Result<Vec<PathBuf>> {
+    let repo = git2::Repository::discover(repo_path)
+        .with_context(|| format!("no git repository found at {}", repo_path.display()))?;
+    let base_tree = repo
+        .revparse_single(base_sha)
+        .with_context(|| format!("cannot resolve base '{base_sha}'"))?
+        .peel_to_tree()
+        .with_context(|| format!("'{base_sha}' does not point to a tree"))?;
+
+    let mut opts = git2::DiffOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true);
+    let diff = repo.diff_tree_to_workdir(Some(&base_tree), Some(&mut opts))?;
+
+    let mut files = Vec::new();
+    diff.foreach(
+        &mut |delta, _| {
+            if let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path()) {
+                // Defensively drop VCS-internal paths. jj's colocated `.jj/.gitignore`
+                // normally hides `.jj/`, but don't rely on it: an untracked `.jj/`
+                // would otherwise flood the result with false additions.
+                if !path.starts_with(".jj") && !path.starts_with(".git") {
+                    files.push(path.to_path_buf());
+                }
+            }
+            true
+        },
+        None,
+        None,
+        None,
+    )?;
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
 impl Vcs for GitVcs {
     fn changed_files(&self, base: &str, head: &str) -> Result<Vec<PathBuf>> {
         let base_oid = self.resolve_rev(base)?;
@@ -73,9 +114,9 @@ impl Vcs for GitVcs {
         if rev == "WORKDIR" {
             let workdir = self.repo.workdir()
                 .context("bare repository has no working directory")?;
-            let full_path = workdir.join(path);
-            return std::fs::read_to_string(&full_path)
-                .with_context(|| format!("cannot read {}", full_path.display()));
+            let rel = path.to_string_lossy();
+            return crate::vcs::shared::read_working_file(workdir, &rel)?
+                .with_context(|| format!("cannot read {} (absent from working copy)", path.display()));
         }
 
         let oid = self.resolve_rev(rev)?;
@@ -216,6 +257,36 @@ mod tests {
 
         let vcs = GitVcs::open(path).expect("open");
         (dir, vcs)
+    }
+
+    #[test]
+    fn changed_paths_to_workdir_includes_worktree_edits_and_untracked() {
+        let (dir, _) = create_test_repo();
+        let path = dir.path();
+
+        // Uncommitted edit to a tracked file, plus a brand-new untracked file.
+        std::fs::write(path.join("spec/models/user_spec.rb"), "changed\n").expect("write");
+        std::fs::write(path.join("spec/models/order_spec.rb"), "new\n").expect("write untracked");
+
+        let changed = changed_paths_to_workdir(path, "main").expect("changed_paths_to_workdir");
+
+        assert!(
+            changed.contains(&PathBuf::from("spec/models/user_spec.rb")),
+            "tracked worktree edit must surface; got {changed:?}"
+        );
+        assert!(
+            changed.contains(&PathBuf::from("spec/models/order_spec.rb")),
+            "untracked addition must surface; got {changed:?}"
+        );
+    }
+
+    #[test]
+    fn changed_paths_to_workdir_clean_worktree_is_empty() {
+        let (dir, _) = create_test_repo();
+        // The working tree matches the committed feature branch (HEAD), so diffing
+        // HEAD against the workdir yields nothing.
+        let changed = changed_paths_to_workdir(dir.path(), "HEAD").expect("changed_paths_to_workdir");
+        assert!(changed.is_empty(), "clean worktree must report no changes; got {changed:?}");
     }
 
     #[test]

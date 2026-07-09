@@ -1,3 +1,15 @@
+[advisories]
+# We treat security vulnerabilities as blockers and bump to the fixed version.
+# The entries below are *unmaintained* advisories (not vulnerabilities) reached
+# only transitively, with no upstream fix currently available. Re-evaluate — and
+# drop the ignore — whenever the parent dep releases a version that sheds them.
+ignore = [
+    # `instant` — pulled in transitively by notify 7 (notify-types). Not a vuln.
+    "RUSTSEC-2024-0384",
+    # `paste` — compile-time proc-macro pulled in by ratatui 0.29. Not a vuln.
+    "RUSTSEC-2024-0436",
+]
+
 [licenses]
 allow = [
     "MIT",

@@ -1,5 +1,6 @@
 pub mod git;
 pub mod jj;
+pub(crate) mod shared;
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,13 @@ pub trait Vcs {
     fn files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>>;
     fn default_base_rev(&self) -> String;
     fn default_head_rev(&self) -> &str;
+}
+
+/// Whether a revision names the live working copy (as opposed to a committed
+/// revision). These are read from disk directly and discovered against disk, so
+/// specdiff never snapshots to observe them.
+pub fn is_working_copy_rev(rev: &str) -> bool {
+    rev == "@" || rev == "WORKDIR"
 }
 
 pub struct StubVcs {
@@ -79,5 +87,18 @@ impl Vcs for StubVcs {
 
     fn default_head_rev(&self) -> &str {
         "HEAD"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn working_copy_rev_recognizes_head_and_workdir() {
+        assert!(is_working_copy_rev("@"));
+        assert!(is_working_copy_rev("WORKDIR"));
+        assert!(!is_working_copy_rev("main"));
+        assert!(!is_working_copy_rev("abc123"));
     }
 }
