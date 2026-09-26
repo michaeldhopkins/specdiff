@@ -84,6 +84,10 @@ unmaintained/transitive advisories with no upstream fix may be ignored in
   SharedExampleRegistry instances
 - Do not add comments to code
 - All files must end with a newline
+- tests/file_length.rs caps every file under src/ at 400 production lines
+  (inline test items are not counted). Files over it when the gate went in
+  are pinned at that size and may only shrink; lower the pin when one does.
+  New code goes in a new module, never into a pinned file.
 
 ## Adding a new framework
 

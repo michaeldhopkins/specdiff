@@ -50,6 +50,10 @@ clap_complete = "4"
 clap_mangen = "0.2"
 predicates = "3"
 proptest = "1"
+# syn + proc-macro2 (span-locations): tests/file_length.rs parses each source file
+# to leave its test-only items out of the count.
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 tempfile = "3"
 
 [lints.clippy]
