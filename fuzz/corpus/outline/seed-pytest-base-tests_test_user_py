@@ -1,0 +1,35 @@
+tests/test_user.py
+import pytest
+
+
+class TestPersistableMixin:
+    def test_has_id(self):
+        obj = {"id": 1}
+        assert "id" in obj
+
+    def test_has_timestamps(self):
+        obj = {"created_at": 0, "updated_at": 0}
+        assert "created_at" in obj
+
+
+class TestUser(TestPersistableMixin):
+    def test_create_user(self):
+        user = {"name": "Alice", "email": "alice@example.com"}
+        assert user["name"] == "Alice"
+
+    def test_user_email_required(self):
+        with pytest.raises(KeyError):
+            user = {}
+            _ = user["email"]
+
+    def test_user_str_representation(self):
+        user = {"name": "Alice"}
+        assert str(user) == "{'name': 'Alice'}"
+
+
+class TestUserValidation:
+    def test_valid_email(self):
+        assert "@" in "alice@example.com"
+
+    def test_invalid_email(self):
+        assert "@" not in "not-an-email"

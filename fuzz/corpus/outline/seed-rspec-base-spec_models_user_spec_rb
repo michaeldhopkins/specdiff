@@ -1,0 +1,20 @@
+spec/models/user_spec.rb
+RSpec.describe User do
+  describe "validations" do
+    it "validates email format" do
+      user = User.new(email: "bad")
+      expect(user).not_to be_valid
+    end
+
+    it "requires password" do
+      user = User.new(password: nil)
+      expect(user).not_to be_valid
+    end
+  end
+
+  describe "associations" do
+    it "has many posts" do
+      expect(User.reflect_on_association(:posts).macro).to eq(:has_many)
+    end
+  end
+end

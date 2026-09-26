@@ -1,0 +1,19 @@
+src/lib.rs
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_addition() {
+        assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn test_subtraction() {
+        assert_eq!(5 - 3, 2);
+    }
+
+    #[test]
+    fn test_string_concat() {
+        let s = format!("{}{}", "hello", " world");
+        assert_eq!(s, "hello world");
+    }
+}

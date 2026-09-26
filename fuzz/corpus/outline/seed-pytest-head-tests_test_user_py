@@ -1,0 +1,54 @@
+tests/test_user.py
+import pytest
+
+
+class TestPersistableMixin:
+    def test_has_id(self):
+        obj = {"id": 1}
+        assert "id" in obj
+
+    def test_has_timestamps(self):
+        obj = {"created_at": 0, "updated_at": 0}
+        assert "created_at" in obj
+
+
+class TestUser(TestPersistableMixin):
+    def test_create_user(self):
+        user = {"name": "Alice", "email": "alice@example.com"}
+        assert user["name"] == "Alice"
+
+    def test_user_email_required(self):
+        with pytest.raises(KeyError):
+            user = {}
+            _ = user["email"]
+
+    def test_user_display_name(self):
+        user = {"name": "Alice", "title": "Dr."}
+        assert f"{user['title']} {user['name']}" == "Dr. Alice"
+
+
+class TestUserValidation:
+    def test_valid_email(self):
+        assert "@" in "alice@example.com"
+
+    def test_invalid_email(self):
+        assert "@" not in "not-an-email"
+
+    def test_email_domain_required(self):
+        assert "." in "alice@example.com".split("@")[1]
+
+
+def test_standalone_user_creation():
+    user = {"name": "Bob"}
+    assert user["name"] == "Bob"
+
+
+@pytest.mark.parametrize("email,expected", [
+    ("alice@example.com", True),
+    ("bob@test.org", True),
+    ("not-an-email", False),
+    ("", False),
+])
+def test_email_validation_cases(email, expected):
+    has_at = "@" in email
+    assert has_at == expected

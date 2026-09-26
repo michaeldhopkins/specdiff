@@ -1,0 +1,32 @@
+spec/models/user_spec.rb
+RSpec.describe User do
+  describe "validations" do
+    it "validates email format" do
+      user = User.new(email: "bad")
+      expect(user).not_to be_valid
+    end
+
+    it "validates password length" do
+      user = User.new(password: "ab")
+      expect(user.errors[:password]).to include("is too short")
+    end
+
+    it "validates uniqueness of username" do
+      User.create!(username: "taken", email: "a@b.com", password: "secret")
+      user = User.new(username: "taken")
+      expect(user).not_to be_valid
+    end
+  end
+
+  describe "associations" do
+    it "has many posts" do
+      expect(User.reflect_on_association(:posts).macro).to eq(:has_many)
+    end
+
+    it "has many comments" do
+      expect(User.reflect_on_association(:comments).macro).to eq(:has_many)
+    end
+  end
+
+  it_behaves_like "a timestamped model"
+end

@@ -1,0 +1,39 @@
+__tests__/user.test.js
+describe("User", () => {
+  describe("creation", () => {
+    it("creates a user with name", () => {
+      const user = { name: "Alice" };
+      expect(user.name).toBe("Alice");
+    });
+
+    it("creates a user with email", () => {
+      const user = { email: "alice@example.com" };
+      expect(user.email).toBe("alice@example.com");
+    });
+
+    it("creates a user with default role", () => {
+      const user = { name: "Alice", role: "member" };
+      expect(user.role).toBe("member");
+    });
+  });
+
+  describe("validation", () => {
+    it("requires a name", () => {
+      const user = {};
+      expect(user.name).toBeUndefined();
+    });
+
+    it("requires a valid email format", () => {
+      const email = "alice@example.com";
+      expect(email).toMatch(/@/);
+    });
+
+    it.each([
+      ["alice@example.com", true],
+      ["bob@test.org", true],
+      ["invalid", false],
+    ])("validates %s as %s", (email, expected) => {
+      expect(email.includes("@")).toBe(expected);
+    });
+  });
+});

@@ -1,0 +1,32 @@
+src/lib.rs
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_addition() {
+        assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn test_multiplication() {
+        assert_eq!(3 * 4, 12);
+    }
+
+    #[test]
+    fn test_string_length() {
+        let s = "hello world";
+        assert_eq!(s.len(), 11);
+    }
+
+    #[test]
+    fn test_division() {
+        assert_eq!(10 / 2, 5);
+    }
+
+    #[rstest]
+    #[case(1, 1, 2)]
+    #[case(2, 3, 5)]
+    #[case(10, 20, 30)]
+    fn test_add_cases(#[case] a: i32, #[case] b: i32, #[case] expected: i32) {
+        assert_eq!(a + b, expected);
+    }
+}

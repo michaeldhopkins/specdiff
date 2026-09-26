@@ -1,0 +1,20 @@
+tests/test_user.py
+import pytest
+
+
+class TestBase:
+    def test_shared_one(self):
+        pass
+
+
+class TestUser(TestBase):
+    def test_own(self):
+        pass
+
+    @pytest.mark.parametrize("a,b", [(1, 2), (3, 4), (5, 6)])
+    def test_add(self, a, b):
+        assert a + b > 0
+
+
+def test_top_level():
+    pass

@@ -1,0 +1,10 @@
+spec/support/shared_examples.rb
+RSpec.shared_examples "a timestamped model" do
+  it "has created_at" do
+    expect(subject).to respond_to(:created_at)
+  end
+
+  it "has updated_at" do
+    expect(subject).to respond_to(:updated_at)
+  end
+end

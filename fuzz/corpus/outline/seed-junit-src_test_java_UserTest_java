@@ -1,0 +1,27 @@
+src/test/java/UserTest.java
+class BaseTest {
+    @Test
+    void testShared() {
+    }
+}
+
+class UserTest extends BaseTest {
+    @Test
+    void testCreate() {
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "b", "c"})
+    void testNames(String name) {
+    }
+
+    @Nested
+    class AdminTest {
+        @Test
+        void testAdmin() {
+        }
+    }
+
+    void helperMethod() {
+    }
+}

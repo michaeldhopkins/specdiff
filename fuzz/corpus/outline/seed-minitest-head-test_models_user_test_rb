@@ -1,0 +1,37 @@
+test/models/user_test.rb
+require "test_helper"
+
+module TestPersistable
+  def test_has_id
+    assert_not_nil @subject.id
+  end
+
+  def test_has_timestamps
+    assert_not_nil @subject.created_at
+  end
+end
+
+class TestUser < Minitest::Test
+  include TestPersistable
+
+  def test_valid_user
+    user = User.new(name: "Alice", email: "alice@example.com")
+    assert user.valid?
+  end
+
+  def test_invalid_without_name
+    user = User.new(email: "alice@example.com")
+    refute user.valid?
+  end
+
+  def test_email_format_validation
+    user = User.new(name: "Alice", email: "not-an-email")
+    refute user.valid?
+  end
+
+  def test_unique_email
+    User.create!(name: "Alice", email: "alice@example.com")
+    user = User.new(name: "Bob", email: "alice@example.com")
+    refute user.valid?
+  end
+end

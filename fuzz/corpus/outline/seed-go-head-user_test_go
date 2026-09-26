@@ -1,0 +1,53 @@
+user_test.go
+package user
+
+import "testing"
+
+func TestCreateUser(t *testing.T) {
+	t.Run("with valid name", func(t *testing.T) {
+		name := "Alice"
+		if name == "" {
+			t.Fatal("name should not be empty")
+		}
+	})
+
+	t.Run("with valid email", func(t *testing.T) {
+		email := "alice@example.com"
+		if email == "" {
+			t.Fatal("email should not be empty")
+		}
+	})
+
+	t.Run("with default role", func(t *testing.T) {
+		role := "member"
+		if role == "" {
+			t.Fatal("role should not be empty")
+		}
+	})
+}
+
+func TestUpdateUser(t *testing.T) {
+	t.Run("updates name", func(t *testing.T) {
+		// placeholder
+	})
+}
+
+func TestValidateEmail(t *testing.T) {
+	cases := []struct {
+		name  string
+		email string
+		valid bool
+	}{
+		{"valid standard", "alice@example.com", true},
+		{"valid with subdomain", "bob@mail.example.com", true},
+		{"missing at", "invalid", false},
+		{"empty", "", false},
+		{"just at", "@", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = tc.valid
+			_ = tc.email
+		})
+	}
+}

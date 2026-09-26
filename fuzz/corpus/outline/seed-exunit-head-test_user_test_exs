@@ -1,0 +1,26 @@
+test/user_test.exs
+defmodule UserTest do
+  use ExUnit.Case
+
+  describe "validations" do
+    test "validates email format" do
+      assert true
+    end
+
+    test "requires name" do
+      assert true
+    end
+
+    test "requires unique email" do
+      assert true
+    end
+  end
+
+  test "creates a user" do
+    assert true
+  end
+
+  test "deletes a user" do
+    assert true
+  end
+end

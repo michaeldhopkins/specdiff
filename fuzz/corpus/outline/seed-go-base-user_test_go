@@ -1,0 +1,26 @@
+user_test.go
+package user
+
+import "testing"
+
+func TestCreateUser(t *testing.T) {
+	t.Run("with valid name", func(t *testing.T) {
+		name := "Alice"
+		if name == "" {
+			t.Fatal("name should not be empty")
+		}
+	})
+
+	t.Run("with valid email", func(t *testing.T) {
+		email := "alice@example.com"
+		if email == "" {
+			t.Fatal("email should not be empty")
+		}
+	})
+}
+
+func TestDeleteUser(t *testing.T) {
+	t.Run("removes from database", func(t *testing.T) {
+		// placeholder
+	})
+}
