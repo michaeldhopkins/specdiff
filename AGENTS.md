@@ -89,6 +89,48 @@ unmaintained/transitive advisories with no upstream fix may be ignored in
   are pinned at that size and may only shrink; lower the pin when one does.
   New code goes in a new module, never into a pinned file.
 
+## Fuzzing
+
+Method: the `rust-fuzzing` skill. `fuzz/` is a standalone cargo-fuzz workspace
+(nightly); the main crate never sees it.
+
+The input specdiff does not control is the source of every test file on the
+branch, in eight tree-sitter grammars, and the paths those files live at. Both
+targets feed it through the public API, so there is no `cfg(fuzzing)` shim.
+
+| Target | Input | Asserts |
+|---|---|---|
+| `outline` | `<path>\n<source>` | For every framework the path selects (plus frameworks that `extends` one, since `rust_proptest`/`rust_rstest` declare no files): outlining never panics or hangs; outlining the same source twice gives the same tree; an outline diffed against itself has no changes; renaming one node to `"<name> renamed"` diffs as exactly one rename and no add or remove. |
+| `outline_diff` | `<path>\0<base>\0<head>` | The whole pipeline (`diff_files` over an in-memory `FileSource`: shared-example scan, parse, diff, path normalization, then every output format and `--filter`) never panics; identical base and head report nothing; the diff accounts for every node of both outlines exactly once (base side in order, head side as a multiset) and its kinds are coherent. |
+
+The rename promise has two stated exceptions, skipped in the target: a name
+with no whitespace-separated words (similarity is 0 against anything), and a
+node whose name and kind are shared by a sibling (either copy can be paired).
+Empty groups are not renamed: they need 0.7 name similarity, not 0.5.
+
+- Seeds: `fuzz/make-seeds.sh` builds `fuzz/corpus/*/seed-*` from
+  `~/projects/specdiff-tests/fixtures` and `fuzz/seed-src/` (snippets for JUnit,
+  PHPUnit, Pest, pytest inheritance, rstest/proptest, which the fixtures lack).
+  Re-run it after adding a fixture or framework, and commit the seeds.
+- Dictionary: the same script derives `fuzz/dict/*.dict` from every one-word
+  string in `frameworks/*.toml`, plus grammar punctuation and the `\0`
+  separator. It regenerates, never hand-edit it.
+- Local burst: `cargo +nightly fuzz build` then
+  `fuzz/burst.sh fuzz/target/aarch64-apple-darwin/release/<target> <target> 60`.
+  Run targets one at a time: in parallel they produce contention slow-units.
+  An `outline` input costs ~15 ms under ASan (several frameworks, each parsed
+  twice), so ~65-150 exec/s locally is normal.
+
+Not fuzzed, and why:
+- Framework TOMLs: compiled in by `build.rs` (`include_str!`), not read at
+  runtime, so every input there is ours. `all_framework_tomls_deserialize`
+  covers them.
+- VCS output: git is read through git2, and jj output is parsed only as
+  `commit_id` and `jj file list` lines (trimmed, non-empty), both through
+  `vcs-runner`, which is its own crate.
+- CLI arguments: supplied by the person running it. `--filter` is exercised
+  by `outline_diff` anyway.
+
 ## Adding a new framework
 
 1. Create frameworks/<name>.toml following SAMPLE.toml patterns
