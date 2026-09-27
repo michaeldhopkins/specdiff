@@ -135,7 +135,7 @@ impl Vcs for GitVcs {
     fn current_branch(&self) -> Result<Option<String>> {
         let head = self.repo.head().context("HEAD is unborn")?;
         if head.is_branch() {
-            return Ok(head.shorthand().map(|n| n.to_string()));
+            return Ok(head.shorthand().ok().map(|n| n.to_string()));
         }
         Ok(None)
     }
@@ -149,7 +149,7 @@ impl Vcs for GitVcs {
 
         let mut files = Vec::new();
         tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
-            if let Some(name) = entry.name() {
+            if let Ok(name) = entry.name() {
                 let full_path = if dir.is_empty() {
                     name.to_string()
                 } else {
