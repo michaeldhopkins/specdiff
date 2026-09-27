@@ -131,6 +131,49 @@ Not fuzzed, and why:
 - CLI arguments: supplied by the person running it. `--filter` is exercised
   by `outline_diff` anyway.
 
+## Mutation testing
+
+Method: the `rust-mutation-testing` skill. Config: `.cargo/mutants.toml`. CI:
+`.github/workflows/mutants.yml`, which gates nothing.
+
+- Per change: `--in-diff` over the lines a push to main or a PR touched. Over 80
+  selected mutants (a reformat, a mass rename) it skips with a warning.
+- Rotating slice: each push to main also runs `--shard k/12`, k being the run
+  number mod 12, so the whole tree comes round every 12 or so pushes. No
+  whole-tree sweep, locally or in CI.
+- The jj backend's tests are `#[ignore]`d (they need the jj CLI), so the config
+  passes `--include-ignored` and every mutation run needs `jj` on PATH; CI
+  installs a pinned one. Without it the baseline fails (exit 4).
+- Tests that read `../specdiff-tests/fixtures` skip under cargo-mutants, which
+  builds a copy of the tree elsewhere, and in CI. They cannot catch a mutant.
+
+Adoption, 2026-09-27, cargo-mutants 27.1.0, 901 mutants in the tree:
+- Slice `0/8` (113 mutants: `src/diff/mod.rs`, `src/main.rs`, part of
+  `src/output/mod.rs`) took 18 minutes locally at `-j2` with other builds
+  running: 175 s cold baseline build, then about 8 s a mutant. 81 caught, 19
+  missed, 13 unviable: 81% (caught / (caught + missed)).
+- Every miss but one now has a test: the rename-scoring ratios, budget charge
+  and same-kind guard in `diff/mod.rs`, the test-file filter in VCS mode
+  (`tests/cli.rs`), and the color decision, which was only observable on a
+  terminal and moved to `Cli::tree_options` and `output::color_enabled`. The
+  one left, in `name_similarity`, is equivalent and excluded (below).
+- Slice `0/16` afterwards, with the machine quieter: 57 mutants in 2 min 45 s
+  (24 s baseline), 53 caught, 4 unviable, none missed.
+- N = 12 (75 mutants a slice) sits between those two: about 12 minutes at the
+  contended rate, 4 at the quiet one. CI has not been timed yet; if a slice
+  runs past about 15 minutes there, raise N.
+- Also run whole: `src/output/truncate.rs` (38 mutants, 4 min: 28 caught, 4
+  missed, 6 timeouts) and `src/vcs/jj.rs` (49 mutants, 4 min: 31 missed of 46
+  viable before its new tests). Both burned down.
+- Timeouts in `truncate_unchanged_runs` are real detections: mutating its loop
+  counters makes it spin forever.
+
+Excluded as equivalent, with the argument next to each in `.cargo/mutants.toml`:
+the two `* 1` mutants of the resume index in `truncate_unchanged_runs`
+(anchored by line and column, so they reappear if the line moves), the
+empty-string shortcut in `name_similarity`, and the serial/parallel threshold
+in `JjVcs::files_at_revision`.
+
 ## Adding a new framework
 
 1. Create frameworks/<name>.toml following SAMPLE.toml patterns
