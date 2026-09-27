@@ -37,10 +37,16 @@ pub fn format_json(file_diffs: &[FileDiff]) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(file_diffs)?)
 }
 
+fn color_enabled(requested: bool, stdout_is_terminal: bool, no_color_env: Option<&std::ffi::OsStr>) -> bool {
+    requested && stdout_is_terminal && no_color_env.is_none()
+}
+
 pub fn format_tree(file_diffs: &[FileDiff], opts: TreeOptions) -> String {
-    let use_color = opts.color
-        && std::io::stdout().is_terminal()
-        && std::env::var_os("NO_COLOR").is_none();
+    let use_color = color_enabled(
+        opts.color,
+        std::io::stdout().is_terminal(),
+        std::env::var_os("NO_COLOR").as_deref(),
+    );
 
     let mut lines: Vec<RenderedLine> = Vec::new();
     push_stats_header(&mut lines, file_diffs, use_color);
@@ -327,6 +333,14 @@ mod tests {
         let json = format_json(&diffs).expect("json");
         assert!(json.contains("models::user"));
         assert!(json.contains("validates uniqueness"));
+    }
+
+    #[test]
+    fn color_needs_the_request_a_terminal_and_no_no_color_env() {
+        assert!(color_enabled(true, true, None));
+        assert!(!color_enabled(false, true, None));
+        assert!(!color_enabled(true, false, None));
+        assert!(!color_enabled(true, true, Some(std::ffi::OsStr::new("1"))));
     }
 
     #[test]

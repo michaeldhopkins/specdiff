@@ -1,3 +1,4 @@
+use crate::output::TreeOptions;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -38,9 +39,45 @@ pub struct Cli {
     pub head_dir: Option<String>,
 }
 
+impl Cli {
+    pub fn tree_options(&self) -> TreeOptions {
+        TreeOptions {
+            changed_only: self.changed_only,
+            color: !self.no_color,
+            full_context: self.full_context,
+        }
+    }
+}
+
 #[derive(Clone, clap::ValueEnum)]
 pub enum OutputFormat {
     Tree,
     Json,
     Compact,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tree_options(args: &[&str]) -> TreeOptions {
+        let argv = std::iter::once("specdiff").chain(args.iter().copied());
+        Cli::parse_from(argv).tree_options()
+    }
+
+    #[test]
+    fn tree_options_default_to_color_with_truncated_context() {
+        let opts = tree_options(&[]);
+        assert!(opts.color);
+        assert!(!opts.changed_only);
+        assert!(!opts.full_context);
+    }
+
+    #[test]
+    fn tree_options_follow_their_flags() {
+        let opts = tree_options(&["--no-color", "--changed-only", "--full-context"]);
+        assert!(!opts.color);
+        assert!(opts.changed_only);
+        assert!(opts.full_context);
+    }
 }
