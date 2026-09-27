@@ -18,4 +18,7 @@ exclude_re = [
     # into no words, so `common` is 0 and the function still returns 0.0 (and two
     # whitespace-only names split to nothing on both sides and also give 0.0).
     'replace \|\| with && in name_similarity$',
+    # Equivalent. `paths.len() < 4` only picks serial reads or rayon; both read each path
+    # the same way and map any failure to None, so the result is identical either side.
+    'replace < with (==|>|<=) in <impl Vcs for JjVcs>::files_at_revision$',
 ]
