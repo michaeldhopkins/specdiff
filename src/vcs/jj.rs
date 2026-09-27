@@ -439,4 +439,78 @@ mod tests {
         let vcs = JjVcs::new(dir.path().to_path_buf());
         assert_eq!(vcs.default_base_rev(), "main@origin");
     }
+
+    fn jj_commit_id(path: &Path, rev: &str) -> String {
+        let out = Command::new("jj")
+            .args(["--ignore-working-copy", "log", "-r", rev, "--no-graph", "-T", "commit_id"])
+            .current_dir(path)
+            .output()
+            .expect("jj log");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn open_requires_a_jj_directory() {
+        let repo = create_test_repo();
+        assert!(JjVcs::open(repo.path()).is_ok());
+        let plain = TempDir::new().expect("tempdir");
+        assert!(JjVcs::open(plain.path()).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn colocation_is_read_from_the_workdir_git() {
+        let colocated = create_test_repo();
+        assert!(JjVcs::new(colocated.path().to_path_buf()).is_colocated());
+
+        let separate = TempDir::new().expect("tempdir");
+        let status = Command::new("jj")
+            .args(["git", "init", "--no-colocate"])
+            .current_dir(separate.path())
+            .output()
+            .expect("jj git init")
+            .status;
+        assert!(status.success());
+        assert!(!JjVcs::new(separate.path().to_path_buf()).is_colocated());
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn committed_revisions_read_back_through_jj() {
+        let dir = create_test_repo();
+        let root = dir.path();
+        let status = Command::new("jj")
+            .args(["bookmark", "create", "feature", "-r", "@"])
+            .current_dir(root)
+            .output()
+            .expect("jj bookmark create")
+            .status;
+        assert!(status.success());
+        let vcs = JjVcs::new(root.to_path_buf());
+        let readme = PathBuf::from("README.md");
+        let main_id = jj_commit_id(root, "main");
+        assert_eq!(main_id.len(), 40);
+
+        assert_eq!(vcs.commit_id_of("main"), Some(main_id.clone()));
+        assert_eq!(vcs.commit_id_of("no-such-bookmark"), None);
+        assert_eq!(vcs.base_file_list("main").expect("file list"), vec!["README.md".to_string()]);
+        assert_eq!(vcs.file_at_revision(&readme, "main").expect("file"), "hi\n");
+        assert_eq!(
+            vcs.files_at_revision(std::slice::from_ref(&readme), "main"),
+            vec![(readme.clone(), Some("hi\n".to_string()))]
+        );
+        assert_eq!(vcs.merge_base("main", "@").expect("merge base"), main_id);
+        assert_eq!(vcs.current_branch().expect("branch"), Some("feature".to_string()));
+        assert_eq!(vcs.files_matching("*.md").expect("matching"), vec![readme]);
+        assert_eq!(vcs.default_head_rev(), "@");
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn diskwalk_of_an_unchanged_tree_reports_nothing() {
+        let dir = create_test_repo();
+        let vcs = JjVcs::new(dir.path().to_path_buf());
+        assert_eq!(vcs.diskwalk_changed_files("@").expect("diskwalk"), Vec::<PathBuf>::new());
+    }
 }
