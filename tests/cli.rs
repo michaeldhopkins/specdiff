@@ -317,3 +317,45 @@ fn cli_print_parameterized_case_count() {
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
     assert!(stdout.contains("[4 cases]"), "should render case count");
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(["-c", "user.email=test@test.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .expect("git");
+    assert!(status.success(), "git {args:?} failed");
+}
+
+#[test]
+fn cli_print_in_git_repo_outlines_changed_test_files_only() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("spec")).expect("mkdir");
+    std::fs::write(
+        root.join("spec/user_spec.rb"),
+        "RSpec.describe User do\n  it \"exists\" do\n  end\nend\n",
+    )
+    .expect("write spec");
+    std::fs::write(root.join("README.md"), "base\n").expect("write readme");
+    git(root, &["init", "-q", "-b", "main"]);
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "base"]);
+    git(root, &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(
+        root.join("spec/user_spec.rb"),
+        "RSpec.describe User do\n  it \"exists\" do\n  end\n  it \"has an email\" do\n  end\nend\n",
+    )
+    .expect("rewrite spec");
+    std::fs::write(root.join("README.md"), "head\n").expect("rewrite readme");
+    git(root, &["commit", "-q", "-am", "head"]);
+
+    Command::cargo_bin("specdiff")
+        .expect("binary")
+        .args(["--print", "--no-color", "--format", "compact"])
+        .current_dir(root)
+        .assert()
+        .success()
+        .stdout("+ user > User > has an email\n");
+}
