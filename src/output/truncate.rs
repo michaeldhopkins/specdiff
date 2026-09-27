@@ -122,6 +122,30 @@ mod tests {
     }
 
     #[test]
+    fn zero_context_collapses_a_leading_run_to_the_ellipsis_alone() {
+        let mut lines = vec![Tok::U(0), Tok::U(1), Tok::C(0), Tok::U(2)];
+        truncate(&mut lines, 0, 0);
+        assert_eq!(lines, vec![Tok::Ellipsis(2), Tok::C(0), Tok::U(2)]);
+    }
+
+    #[test]
+    fn tail_longer_than_head_keeps_a_leading_run_intact_at_both_ends() {
+        let mut lines: Vec<Tok> = (0..8).map(Tok::U).chain(std::iter::once(Tok::C(0))).collect();
+        truncate(&mut lines, 1, 3);
+        assert_eq!(
+            lines,
+            vec![
+                Tok::U(0),
+                Tok::Ellipsis(4),
+                Tok::U(5),
+                Tok::U(6),
+                Tok::U(7),
+                Tok::C(0),
+            ]
+        );
+    }
+
+    #[test]
     fn empty_vec_is_a_noop() {
         let mut lines: Vec<Tok> = vec![];
         truncate(&mut lines, 3, 2);
