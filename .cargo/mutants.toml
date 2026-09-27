@@ -1,0 +1,21 @@
+# cargo-mutants configuration. Method: the `rust-mutation-testing` skill; this crate's
+# numbers and decisions are in AGENTS.md, "Mutation testing".
+
+# The `jj` backend's tests are `#[ignore]`d because they need the jj CLI. Without them every
+# mutant in src/vcs/jj.rs would come back MISSED, so mutation runs include them and need jj
+# on PATH (CI installs it).
+additional_cargo_test_args = ["--", "--include-ignored"]
+
+exclude_re = [
+    # Equivalent. After a truncation `i` resumes at `start + head + 1 + tail`, the first
+    # index past the kept tail. Either `* 1` mutant moves it back one, into the tail, and a
+    # rescan from there sees an unchanged run of at most one line, which never truncates.
+    # Anchored by line and column because the other `+ with *` mutants in this function
+    # are real. If the line moves this stops matching and the mutants reappear as MISSED,
+    # which is the loud direction: re-anchor it then.
+    '^src/output/truncate\.rs:31:(30|34): replace \+ with \* in truncate_unchanged_runs$',
+    # Equivalent. The empty-string guard is a shortcut: with `&&`, one empty side splits
+    # into no words, so `common` is 0 and the function still returns 0.0 (and two
+    # whitespace-only names split to nothing on both sides and also give 0.0).
+    'replace \|\| with && in name_similarity$',
+]
