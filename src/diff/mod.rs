@@ -1023,6 +1023,63 @@ mod tests {
     }
 
     #[test]
+    fn diff_never_renames_a_spec_into_a_group_of_the_same_name() {
+        let base = vec![SpecNode::spec("handles expired tokens", 1)];
+        let head = vec![SpecNode::group(
+            "handles expired tokens",
+            1,
+            vec![SpecNode::spec("returns 401", 2)],
+        )];
+        let diff = diff_spec_nodes(&base, &head);
+        let kinds: Vec<DiffKind> = diff.iter().map(|d| d.kind).collect();
+        assert_eq!(kinds, vec![DiffKind::Removed, DiffKind::Added]);
+    }
+
+    #[test]
+    fn raw_child_overlap_renames_a_group_without_spending_budget() {
+        let children = vec![
+            SpecNode::spec("has email", 2),
+            SpecNode::spec("has name", 3),
+        ];
+        let base = vec![SpecNode::group("User", 1, children.clone())];
+        let head = vec![SpecNode::group("Account", 1, children)];
+        let budget = Cell::new(0);
+        let diff = diff_level(&base, &head, &budget);
+        assert_eq!(diff.len(), 1);
+        assert_eq!(diff[0].kind, DiffKind::Renamed);
+        assert_eq!(diff[0].old_name.as_deref(), Some("User"));
+    }
+
+    #[test]
+    fn raw_child_dice_counts_shared_names_as_a_multiset() {
+        let specs = |names: &[&str]| -> Vec<SpecNode> {
+            names.iter().map(|n| SpecNode::spec(*n, 1)).collect()
+        };
+        assert!(raw_child_dice(&[], &[]).abs() < f64::EPSILON);
+        assert!((raw_child_dice(&specs(&["a"]), &specs(&["a"])) - 1.0).abs() < f64::EPSILON);
+        assert!((raw_child_dice(&specs(&["a"]), &specs(&["a", "a"])) - 2.0 / 3.0).abs() < f64::EPSILON);
+        assert!((raw_child_dice(&specs(&["a", "b"]), &specs(&["b", "c"])) - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn child_overlap_is_twice_the_matched_children_over_both_sides() {
+        let base = vec![SpecNode::spec("a", 1)];
+        let head = vec![SpecNode::spec("a", 1), SpecNode::spec("c", 2)];
+        let inner = diff_spec_nodes(&base, &head);
+        assert!((child_overlap(&base, &head, &inner) - 2.0 / 3.0).abs() < f64::EPSILON);
+        assert!(child_overlap(&[], &[], &[]).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bottom_up_rescoring_spends_one_unit_of_budget_per_group_pair() {
+        let base = vec![SpecNode::group("User", 1, vec![SpecNode::spec("has email", 2)])];
+        let head = vec![SpecNode::group("Account", 1, vec![SpecNode::spec("has phone", 2)])];
+        let budget = Cell::new(5);
+        diff_level(&base, &head, &budget);
+        assert_eq!(budget.get(), 4);
+    }
+
+    #[test]
     fn diff_empty_trees() {
         let base: Vec<SpecNode> = vec![];
         let head: Vec<SpecNode> = vec![];
