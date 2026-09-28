@@ -1,0 +1,15 @@
+programs = ["jj"]
+launches = []
+owed = []
+
+[[pty]]
+what = "q quits"
+test = "tests/tui.rs::quits"
+
+[[pty]]
+what = "a resize repaints"
+test = "tests/tui.rs::resize_repaints"
+
+[[view]]
+what = "gone"
+test = "tests/missing.rs::gone"

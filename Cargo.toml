@@ -57,6 +57,7 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 tempfile = "3"
 portable-pty = "0.9"
 vt100 = "0.15"
+quote = "1"
 
 [lints.clippy]
 struct-excessive-bools = "deny"

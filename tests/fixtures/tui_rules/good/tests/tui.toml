@@ -1,0 +1,11 @@
+programs = ["jj", "git"]
+launches = []
+owed = []
+
+[[pty]]
+what = "q quits"
+test = "tests/tui.rs::quits"
+
+[[key]]
+what = "q maps to quit"
+test = "src/main.rs::q_quits"
