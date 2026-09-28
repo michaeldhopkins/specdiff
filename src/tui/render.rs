@@ -369,6 +369,13 @@ mod tests {
     }
 
     #[test]
+    fn the_header_leaves_out_renames_when_there_are_none() {
+        let diffs = vec![FileDiff { path: "models::user".into(), nodes: vec![added("new")] }];
+        let (rows, _) = screen(&diffs, 0, opts_truncating(), 60, 8);
+        assert_eq!(rows[0], "specdiff  +1 -0");
+    }
+
+    #[test]
     fn the_empty_view_says_there_are_no_changes() {
         let (rows, _) = screen(&[], 0, opts_truncating(), 60, 8);
         assert_eq!(rows[0], "specdiff  No test outline changes");

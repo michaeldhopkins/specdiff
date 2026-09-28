@@ -89,3 +89,7 @@ test = "src/tui/render.rs::the_changed_only_view_drops_unchanged_files_and_specs
 [[view]]
 what = "scrolled"
 test = "src/tui/render.rs::a_scrolled_view_starts_at_the_scroll_offset_and_reports_how_far_it_can_go"
+
+[[view]]
+what = "header without renames"
+test = "src/tui/render.rs::the_header_leaves_out_renames_when_there_are_none"
