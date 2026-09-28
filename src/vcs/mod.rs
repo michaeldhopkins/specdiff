@@ -126,6 +126,16 @@ mod tests {
     }
 
     #[test]
+    fn stub_answers_the_rest_of_the_trait_with_fixed_values() {
+        let vcs = stub();
+        assert_eq!(vcs.merge_base("main", "HEAD").expect("merge base"), "base");
+        assert_eq!(vcs.current_branch().expect("branch"), Some("feature".to_string()));
+        assert!(vcs.files_matching("spec/**/*.rb").expect("matching").is_empty());
+        assert_eq!(vcs.default_base_rev(), "main");
+        assert_eq!(vcs.default_head_rev(), "HEAD");
+    }
+
+    #[test]
     fn default_files_at_revision_reads_each_path_in_order() {
         let vcs = stub();
         let paths = [PathBuf::from("spec/a_spec.rb"), PathBuf::from("spec/missing_spec.rb")];
