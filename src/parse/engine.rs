@@ -502,7 +502,6 @@ pub fn extract_name(
             let first_arg = unwrap_php_argument(args.named_child(0)?);
             match name_source_type {
                 Some("string_literal") => extract_string_content(first_arg, source),
-                Some("constant") => node_text(first_arg, source),
                 _ => node_text(first_arg, source),
             }
         }
@@ -715,7 +714,7 @@ fn has_annotation(node: Node, source: &str, name: &str) -> bool {
             for modifier in child.children(&mut mc) {
                 if modifier.kind() == "marker_annotation" || modifier.kind() == "annotation" {
                     let text = node_text(modifier, source).unwrap_or_default();
-                    let annotation_name = text.strip_prefix('@').unwrap_or(&text);
+                    let annotation_name = text.strip_prefix('@').unwrap_or(&text).split('(').next().unwrap_or_default().trim_end();
                     if annotation_name == name || annotation_name.ends_with(&format!(".{name}")) {
                         return true;
                     }
@@ -2746,5 +2745,26 @@ mod mutation_tests {
             let expected: Vec<usize> = (0..specs).map(|i| blank + 2 + 2 * i).collect();
             proptest::prop_assert_eq!(lines, expected);
         }
+    }
+
+    fn junit(source: &str) -> Vec<SpecNode> {
+        let junit = all_frameworks().iter().find(|f| f.name == "junit").expect("junit");
+        parse_file(source, "tests/UserTest.java", junit).expect("parsed").root
+    }
+
+    #[test]
+    fn junit_nested_classes_group_by_annotation_even_without_a_test_suffix() {
+        let source = "class UserTest {\n    @Nested\n    class WhenAdmin {\n        @Test\n        void testGrants() {\n        }\n    }\n}\n";
+        let root = junit(source);
+        let nested = &root[0].children[0];
+        assert_eq!((nested.name.as_str(), &nested.kind, nested.line), ("WhenAdmin", &SpecKind::Group, 2));
+        let spec = &nested.children[0];
+        assert_eq!((spec.name.as_str(), &spec.kind, spec.line), ("Grants", &SpecKind::Spec, 4));
+    }
+
+    #[test]
+    fn junit_annotations_match_with_arguments_or_qualified_but_not_by_other_names() {
+        let source = "class UserTest {\n    @Test(timeout = 100)\n    void testSlow() {\n    }\n    @org.junit.jupiter.api.Test\n    void testQualified() {\n    }\n    @Override\n    void testNotATest() {\n    }\n    @Contest\n    void testAlsoNot() {\n    }\n}\n";
+        assert_eq!(names(&junit(source)[0].children), vec!["Slow", "Qualified"]);
     }
 }
