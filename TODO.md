@@ -30,3 +30,16 @@ is worth protecting.
 live TUI actually shows the cost. The subtle bits to preserve: the racy-index
 rule (`mtime >= checkpoint` must be re-read), keying the cache on the resolved
 commit id (not the symbolic rev), and only persisting after a completed pass.
+
+## `Stats.modified` is never counted
+
+`Stats::from_file_diffs` (`src/diff/types.rs`) increments `added`, `removed` and
+`renamed` but never `modified`, so the stats header's `~N` stat can never
+appear and `is_empty` never sees it. Found by mutation testing (2026-09-27):
+the `> 0` guard on it in `push_stats_header` has an equivalent `< 0` mutant,
+excluded in `.cargo/mutants.toml` for that reason.
+
+**Decision needed:** count modified leaves (a spec whose parameter cases
+changed is the only leaf that can be `Modified`) so the header shows them, or
+drop the field and its header branch. If it starts being counted, delete the
+exclusion so the `< 0` mutant is tested again.

@@ -18,6 +18,14 @@ exclude_re = [
     # into no words, so `common` is 0 and the function still returns 0.0 (and two
     # whitespace-only names split to nothing on both sides and also give 0.0).
     'replace \|\| with && in name_similarity$',
+    # Equivalent while `Stats::from_file_diffs` never counts `modified` (it is always 0,
+    # see TODO.md): `modified < 0` and `modified > 0` are both false for it. Anchored by
+    # line like the truncate exclusion, because the same mutant on the other counts is real.
+    '^src/output/mod\.rs:113:23: replace > with < in push_stats_header$',
+    # Equivalent. The skip in `collect_compact_lines` is a shortcut: any node that is not
+    # Unchanged has changes, so under `!=` nothing is skipped, and an unchanged node with
+    # no changes prints nothing and has no changed descendants to print.
+    '^src/output/mod\.rs:\d+:\d+: replace == with != in collect_compact_lines$',
     # Equivalent. `paths.len() < 4` only picks serial reads or rayon; both read each path
     # the same way and map any failure to None, so the result is identical either side.
     'replace < with (==|>|<=) in <impl Vcs for JjVcs>::files_at_revision$',
