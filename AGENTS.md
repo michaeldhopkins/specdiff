@@ -244,13 +244,45 @@ untested too; those have tests as well. No exclusions. Confirmed afterwards:
 missed (5 min); `src/tui/{input,state,watch,render}.rs` 76 mutants, 0 missed
 after the header test (4 min).
 
+Focused pass on `src/parse/engine.rs` (2026-09-28, owner-approved, one time), to
+drain the file's backlog so rotating slices stop going red there. Before: 350
+mutants in 22 minutes at `-j2` on a loaded laptop, 259 caught, 53 missed, 38
+unviable: 83%. Every miss but one was a gap or unreachable code.
+- Tests (module `mutation_tests` at the end of `engine.rs`, not counted by the
+  ratchet) assert parse output of real snippets: marker spec, group and subtest
+  line numbers for Rust, Go, pytest and JUnit (plus a proptest over leading
+  blank lines for RSpec); attributes and `#[case]` counts seen through comments
+  but not past the previous item; only `#[cfg(test)]` marking a test module; Go
+  table-driven detection needing literal cases and a loop that runs `t.Run`;
+  empty `parametrize`, `it.each` and `->with` lists not counting as
+  parameterization; the camel `Test` prefix; inheritance only through
+  `include`/`extend` (minitest) and the base class, not interfaces (phpunit);
+  every in-scope constant substituted with the nearest winning; lowercase
+  locals, symbols, hashes and nested arrays as loop receivers; a disabled loop
+  expansion.
+- Removed rather than excluded, because no input could reach it: loop elements'
+  copy of `literal_atom_text` (now shared), `extract_name`'s `Some("constant")`
+  arm (same as its fallback), a redundant clause in `has_attribute`, the
+  `count > 0` check every counter already guaranteed, the length test in the
+  camel-prefix strip, and the `block`/`body_statement` fallbacks after
+  `child_by_field_name("body")`, which every shipped grammar provides. The file
+  went from 1393 to 1351 lines.
+- Real bug: JUnit `@Test(timeout = 100)` and `@Test(expected = X.class)`
+  methods were dropped from the outline, because `has_annotation` compared the
+  whole annotation text. Fixed in 0.21.4.
+- After: 330 mutants in 21 minutes, 290 caught, 1 missed, 39 unviable. The one
+  left is equivalent and excluded: `==` to `!=` on `arg_kinds` in the
+  `method_call` branch of `collect_refs`, whose extra refs (strings, symbols,
+  `self`) can never name a registered type. With it excluded (confirmed by
+  `--list`, not a third run), 0 missed: 100%.
+
 Excluded as equivalent, with the argument next to each in `.cargo/mutants.toml`:
 the two `* 1` mutants of the resume index in `truncate_unchanged_runs`
 (anchored by line and column, so they reappear if the line moves), the
 empty-string shortcut in `name_similarity`, the serial/parallel thresholds
 in `JjVcs::files_at_revision` and `diff_with_registries`, the two
-`src/output/mod.rs` mutants above, and the jest-only guard in
-`build_shared_registry`.
+`src/output/mod.rs` mutants above, the jest-only guard in
+`build_shared_registry`, and the `method_call` `arg_kinds` check in `collect_refs`.
 
 ## Adding a new framework
 
