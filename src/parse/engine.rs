@@ -223,43 +223,13 @@ fn extract_literal_tuples(receiver: Node, source: &str) -> Vec<Vec<String>> {
     let mut tuples = Vec::new();
     let mut cursor = receiver.walk();
     for child in receiver.children(&mut cursor) {
-        match child.kind() {
-            "bare_symbol" | "bare_string" => {
-                if let Some(text) = node_text(child, source) {
-                    tuples.push(vec![text]);
-                }
-            }
-            "simple_symbol" => {
-                if let Some(text) = node_text(child, source) {
-                    tuples.push(vec![text.trim_start_matches(':').to_string()]);
-                }
-            }
-            "string" => {
-                if let Some(text) = extract_string_content(child, source) {
-                    tuples.push(vec![text]);
-                }
-            }
-            "integer" | "float" => {
-                if let Some(text) = node_text(child, source) {
-                    tuples.push(vec![text]);
-                }
-            }
-            "pair" => {
-                // Hash element: |k, v|.
-                if let Some(pair) = extract_pair_values(child, source) {
-                    tuples.push(pair);
-                }
-            }
-            "array" => {
-                // Nested array element for paired/tuple iteration.
-                let inner = extract_literal_tuples(child, source);
-                let flat: Vec<String> = inner.into_iter().flatten().collect();
-                if !flat.is_empty() {
-                    tuples.push(flat);
-                }
-            }
-            _ => {}
-        }
+        let tuple = match child.kind() {
+            "pair" => extract_pair_values(child, source),
+            "array" => Some(extract_literal_tuples(child, source).into_iter().flatten().collect::<Vec<_>>())
+                .filter(|flat| !flat.is_empty()),
+            _ => literal_atom_text(child, source).map(|text| vec![text]),
+        };
+        tuples.extend(tuple);
     }
     tuples
 }
@@ -2696,5 +2666,85 @@ func TestValidate(t *testing.T) {
         let tree = parse_file(source, "tests/run.php", pest_framework()).expect("parsed");
         let param = tree.root[0].parameterized.as_ref().expect("parameterized info");
         assert_eq!(param.case_count, 2);
+    }
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+    use crate::parse::registry::{all_frameworks, TomlFile};
+
+    fn rspec() -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == "rspec").expect("rspec")
+    }
+
+    fn names(nodes: &[SpecNode]) -> Vec<String> {
+        nodes.iter().map(|n| n.name.clone()).collect()
+    }
+
+    fn outline(source: &str) -> Vec<SpecNode> {
+        parse_file(source, "spec/models/x_spec.rb", rspec()).expect("parsed").root
+    }
+
+    #[test]
+    fn a_disabled_loop_expansion_leaves_the_loop_body_as_written() {
+        let toml = include_str!("../../frameworks/rspec.toml")
+            .replacen("enabled = true\neach_method", "enabled = false\neach_method", 1);
+        let disabled: TomlFile = toml::from_str(&toml).expect("toml");
+        let framework = &disabled.framework[0];
+        assert!(!framework.loop_expansion.as_ref().expect("loop config").enabled);
+        let source = "RSpec.describe X do\n  [1, 2].each do |n|\n    it \"handles #{n}\" do\n    end\n  end\nend\n";
+        let tree = parse_file(source, "spec/models/x_spec.rb", framework).expect("parsed");
+        assert_eq!(names(&tree.root[0].children), vec!["handles #{n}"]);
+        assert_eq!(names(&outline(source)[0].children), vec!["handles 1", "handles 2"]);
+    }
+
+    #[test]
+    fn every_constant_in_scope_is_substituted_and_the_nearest_wins() {
+        let source = "RSpec.describe X do\n  VERB = \"outer\"\n  NOUN = \"thing\"\n  context \"c\" do\n    VERB = \"inner\"\n    [1].each do |n|\n      it \"#{VERB}s #{NOUN} #{n}\" do\n      end\n    end\n  end\nend\n";
+        let root = outline(source);
+        assert_eq!(names(&root[0].children[0].children), vec!["inners thing 1"]);
+    }
+
+    #[test]
+    fn a_lowercase_local_and_a_symbol_are_substituted_too() {
+        let source = "RSpec.describe X do\n  prefix = \"p\"\n  role = :admin\n  [1].each do |n|\n    it \"#{prefix} #{role} #{n}\" do\n    end\n  end\nend\n";
+        assert_eq!(names(&outline(source)[0].children), vec!["p admin 1"]);
+    }
+
+    #[test]
+    fn hash_and_nested_array_receivers_feed_multi_argument_blocks() {
+        let source = "RSpec.describe X do\n  { a: :b, c: 1 }.each do |k, v|\n    it \"#{k} to #{v}\" do\n    end\n  end\n  [[:x, 'y'], [2, 3.5]].each do |p, q|\n    it \"#{p} and #{q}\" do\n    end\n  end\nend\n";
+        assert_eq!(
+            names(&outline(source)[0].children),
+            vec!["a to b", "c to 1", "x and y", "2 and 3.5"]
+        );
+    }
+
+    #[test]
+    fn only_call_nodes_are_dsl_calls() {
+        for kind in ["call", "call_expression", "function_call_expression"] {
+            assert!(is_dsl_call_kind(kind), "{kind}");
+        }
+        for kind in ["identifier", "method", "block", "program", "string"] {
+            assert!(!is_dsl_call_kind(kind), "{kind}");
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn groups_and_specs_report_their_one_based_source_line(blank in 0usize..6, specs in 1usize..5) {
+            let mut source = "\n".repeat(blank);
+            source.push_str("RSpec.describe X do\n");
+            for i in 0..specs {
+                source.push_str(&format!("  it \"spec {i}\" do\n  end\n"));
+            }
+            source.push_str("end\n");
+            let root = outline(&source);
+            proptest::prop_assert_eq!(root[0].line, blank + 1);
+            let lines: Vec<usize> = root[0].children.iter().map(|c| c.line).collect();
+            let expected: Vec<usize> = (0..specs).map(|i| blank + 2 + 2 * i).collect();
+            proptest::prop_assert_eq!(lines, expected);
+        }
     }
 }
