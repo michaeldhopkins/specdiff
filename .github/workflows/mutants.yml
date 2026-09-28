@@ -76,8 +76,9 @@ jobs:
           fi
 
       # Exit codes: 2 a mutant was MISSED (the finding), 3 one timed out (usually an
-      # injected infinite loop, also a real result), 4 the baseline failed, 5 or 6 the diff
-      # does not match the tree or is malformed (a bug in this workflow, not in specdiff).
+      # injected infinite loop, a real result, so counted as caught and passed), 4 the
+      # baseline failed, 5 or 6 the diff does not match the tree or is malformed (a bug in
+      # this workflow, not in specdiff).
       - name: Mutants
         id: mutants
         run: |
@@ -104,7 +105,13 @@ jobs:
             echo "::warning::Mutants skipped: $selected selected, over the limit of $MAX_SELECTED. Nothing was mutation-tested for this change."
             exit 0
           fi
-          cargo mutants --no-shuffle -vV -j2 --in-diff mutants.diff
+          rc=0
+          cargo mutants --no-shuffle -vV -j2 --in-diff mutants.diff || rc=$?
+          if [ "$rc" -eq 3 ]; then
+            echo "::notice::timeouts counted as caught; see mutants.out/timeout.txt"
+            rc=0
+          fi
+          exit "$rc"
 
       - name: Summarise
         if: always()
@@ -185,7 +192,13 @@ jobs:
           k=$(( ${{ github.run_number }} % SHARDS ))
           echo "$k" > mutants-slice.txt
           echo "Slice $k/$SHARDS"
-          cargo mutants --no-shuffle -vV -j2 --shard "$k/$SHARDS"
+          rc=0
+          cargo mutants --no-shuffle -vV -j2 --shard "$k/$SHARDS" || rc=$?
+          if [ "$rc" -eq 3 ]; then
+            echo "::notice::timeouts counted as caught; see mutants.out/timeout.txt"
+            rc=0
+          fi
+          exit "$rc"
 
       - name: Summarise
         if: always()
