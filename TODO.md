@@ -43,3 +43,18 @@ excluded in `.cargo/mutants.toml` for that reason.
 changed is the only leaf that can be `Modified`) so the header shows them, or
 drop the field and its header branch. If it starts being counted, delete the
 exclusion so the `< 0` mutant is tested again.
+
+## Jest shared helpers never register
+
+`frameworks/jest.toml` declares a shared definition (`ast_type =
+"function_declaration"`, `detection_strategy = "contains_specs_and_exported"`,
+`handler = "jest_shared_helpers"`), but `parse::shared::scan_node` only tries
+DSL call nodes and matches `method_names`, which jest leaves empty, and neither
+the detection strategy nor the handler is implemented. So a helper such as
+`export function behavesLikeList() { it(...) }` in `__tests__/helpers/` is
+never registered. Found by mutation testing (2026-09-27): the
+`scan_spec_files_for_definitions` guard in `build_shared_registry` is
+equivalent because of it, and is excluded in `.cargo/mutants.toml`.
+
+**Decision needed:** implement jest helper detection, or remove the dead
+config. If helpers start registering, delete that exclusion.

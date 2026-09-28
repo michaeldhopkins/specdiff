@@ -26,6 +26,15 @@ exclude_re = [
     # Unchanged has changes, so under `!=` nothing is skipped, and an unchanged node with
     # no changes prints nothing and has no changed descendants to print.
     '^src/output/mod\.rs:\d+:\d+: replace == with != in collect_compact_lines$',
+    # Equivalent. `contents.len() >= 4` only picks serial processing or rayon, and
+    # `par_iter().filter_map().collect()` keeps input order, so the diffs are identical.
+    '^src/pipeline\.rs:211:39: replace >= with < in diff_with_registries$',
+    # Equivalent today. `has_shared_definitions && scan_spec_files_for_definitions` only
+    # differs from `||` for jest (the one framework with definitions and the flag off), and
+    # jest's definitions never register (see TODO.md), so scanning its test files finds
+    # nothing either way. Anchored by line because the other `&&` in the function is real.
+    # Remove this if jest helpers start registering.
+    '^src/pipeline\.rs:323:13: replace && with \|\| in build_shared_registry$',
     # Equivalent. `paths.len() < 4` only picks serial reads or rayon; both read each path
     # the same way and map any failure to None, so the result is identical either side.
     'replace < with (==|>|<=) in <impl Vcs for JjVcs>::files_at_revision$',
