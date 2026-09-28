@@ -365,4 +365,76 @@ mod tests {
         let visible = visible_diffs(&state);
         assert_eq!(visible.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), vec!["models::user"]);
     }
+
+    const SHARED: &str = "RSpec.shared_examples \"auditable\" do\n  it \"records the actor\" do\n  end\nend\n";
+    const USES_SHARED: &str =
+        "RSpec.describe User do\n  it_behaves_like \"auditable\"\n  it \"works\" do\n  end\nend\n";
+
+    struct Dirs {
+        _root: tempfile::TempDir,
+        base: PathBuf,
+        head: PathBuf,
+    }
+
+    fn dirs(head_user: &str) -> Dirs {
+        let root = tempfile::TempDir::new().expect("tempdir");
+        let base = root.path().join("base");
+        let head = root.path().join("head");
+        for side in [&base, &head] {
+            std::fs::create_dir_all(side.join("spec/models")).expect("mkdir");
+            std::fs::create_dir_all(side.join("spec/support")).expect("mkdir");
+            std::fs::write(side.join("spec/support/auditable.rb"), SHARED).expect("shared");
+        }
+        std::fs::write(head.join("spec/models/user_spec.rb"), head_user).expect("head");
+        Dirs { _root: root, base, head }
+    }
+
+    fn dir_mode(d: &Dirs) -> WatchMode<'static> {
+        WatchMode::Directory { base: d.base.clone(), head: d.head.clone() }
+    }
+
+    fn cli() -> Cli {
+        <Cli as clap::Parser>::parse_from(["specdiff"])
+    }
+
+    fn outline(diffs: &[FileDiff]) -> Vec<String> {
+        fn walk(nodes: &[crate::diff::types::DiffNode], out: &mut Vec<String>) {
+            for n in nodes {
+                out.push(n.name.clone());
+                walk(&n.children, out);
+            }
+        }
+        let mut out = Vec::new();
+        for d in diffs {
+            walk(&d.nodes, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn a_shared_example_inclusion_needs_the_registry_and_a_plain_spec_does_not() {
+        let mut state = AppState::new(false, false, None);
+        let shared = dirs(USES_SHARED);
+        assert!(dir_mode(&shared).needs_shared_scan(&mut state, &cli()));
+        let plain = dirs("RSpec.describe User do\n  it \"works\" do\n  end\nend\n");
+        assert!(!dir_mode(&plain).needs_shared_scan(&mut state, &cli()));
+    }
+
+    #[test]
+    fn the_registry_expands_an_inclusion_the_fast_path_leaves_as_a_placeholder() {
+        let d = dirs(USES_SHARED);
+        let mode = dir_mode(&d);
+        let mut state = AppState::new(false, false, None);
+        let registry = mode.build_registry(&mut state, &cli());
+        assert!(registry.get("auditable").is_some());
+
+        let resolved = outline(&mode.compute_diffs_with_registry(&mut state, &cli(), &registry).expect("diffs"));
+        assert!(resolved.contains(&"records the actor".to_string()), "{resolved:?}");
+        let fast = outline(&mode.compute_diffs_fast(&mut state, &cli()).expect("diffs"));
+        assert!(!fast.contains(&"records the actor".to_string()), "{fast:?}");
+
+        assert_eq!(outline(&mode.recompute(&mut state, &cli()).expect("fast")), fast);
+        state.shared_registry = Some(registry);
+        assert_eq!(outline(&mode.recompute(&mut state, &cli()).expect("resolved")), resolved);
+    }
 }

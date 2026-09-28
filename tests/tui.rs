@@ -89,3 +89,18 @@ fn interactive_mode_prints_when_stdout_is_piped() {
     assert!(stdout.contains("+      validates uniqueness"));
     world.assert_nothing_ran();
 }
+
+#[test]
+fn vcs_mode_in_a_git_repo_shows_the_branch_and_runs_no_program() {
+    let world = pty::World::new();
+    let repo = world.git_repo(
+        &[("spec/models/user_spec.rb", USER_BASE)],
+        &[("spec/models/user_spec.rb", USER_HEAD)],
+    );
+    let mut tui = world.tui_in(&repo, &[]);
+    tui.wait_for_text("validates uniqueness");
+    assert!(tui.screen().contains("specdiff  +1 -0"));
+    tui.press("q");
+    assert!(tui.wait_for_exit());
+    world.assert_nothing_ran();
+}

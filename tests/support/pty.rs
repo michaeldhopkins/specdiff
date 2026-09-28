@@ -17,7 +17,7 @@ use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 pub const ROWS: u16 = 30;
 pub const COLS: u16 = 100;
-const TIMEOUT: Duration = Duration::from_secs(15);
+const TIMEOUT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(20);
 
 pub fn programs() -> Vec<String> {
@@ -77,10 +77,46 @@ impl World {
         ]
     }
 
+    pub fn git_repo(&self, base: &[(&str, &str)], head: &[(&str, &str)]) -> PathBuf {
+        let repo = self.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("a repo");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(["-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(&repo)
+                .env("HOME", self.home())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?}");
+        };
+        let write = |files: &[(&str, &str)]| {
+            for (rel, content) in files {
+                let path = repo.join(rel);
+                std::fs::create_dir_all(path.parent().expect("a parent")).expect("dirs");
+                std::fs::write(path, content).expect("a file");
+            }
+        };
+        git(&["init", "-q", "-b", "main"]);
+        write(base);
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "base"]);
+        git(&["checkout", "-q", "-b", "feature"]);
+        write(head);
+        git(&["commit", "-q", "-am", "head"]);
+        repo
+    }
+
+    pub fn tui_in(&self, cwd: &Path, args: &[&str]) -> Tui {
+        let args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+        Tui::spawn(&args, &self.env(), cwd)
+    }
+
     pub fn tui(&self, extra: &[&str]) -> Tui {
         let mut args = self.dir_args();
         args.extend(extra.iter().map(|a| (*a).to_string()));
-        Tui::spawn(&args, &self.env())
+        Tui::spawn(&args, &self.env(), &self.path())
     }
 
     pub fn piped(&self, extra: &[&str]) -> std::process::Output {
@@ -109,7 +145,7 @@ pub struct Tui {
 }
 
 impl Tui {
-    pub fn spawn(args: &[String], env: &[(String, String)]) -> Self {
+    pub fn spawn(args: &[String], env: &[(String, String)], cwd: &Path) -> Self {
         let pair = native_pty_system()
             .openpty(PtySize { rows: ROWS, cols: COLS, pixel_width: 0, pixel_height: 0 })
             .expect("a pty");
@@ -119,6 +155,7 @@ impl Tui {
             cmd.env(key, value);
         }
         cmd.args(args);
+        cmd.cwd(cwd);
         let child = pair.slave.spawn_command(cmd).expect("specdiff starts");
         drop(pair.slave);
 

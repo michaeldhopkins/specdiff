@@ -40,6 +40,10 @@ test = "tests/tui.rs::print_is_coloured_on_a_terminal_and_plain_in_a_pipe"
 what = "the interactive view falls back to printing when stdout is not a terminal"
 test = "tests/tui.rs::interactive_mode_prints_when_stdout_is_piped"
 
+[[pty]]
+what = "VCS mode in a git repo draws the branch's outline and runs no program (git is read through git2)"
+test = "tests/tui.rs::vcs_mode_in_a_git_repo_shows_the_branch_and_runs_no_program"
+
 # Repaint after the terminal lost its screen: not supported. specdiff asks for no focus
 # events and has no redraw key, so nothing tells it the screen was wiped; it repaints on
 # the next resize, key or file change.
