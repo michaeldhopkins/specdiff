@@ -785,7 +785,7 @@ fn has_attribute(node: Node, source: &str, attr_name: &str, attr_argument: Optio
             if attribute_matches(sib, source, attr_name, attr_argument) {
                 return true;
             }
-        } else if sib.kind() != "attribute_item" && sib.kind() != "line_comment" && sib.kind() != "block_comment" {
+        } else if sib.kind() != "line_comment" && sib.kind() != "block_comment" {
             break;
         }
         sibling = sib.prev_sibling();
@@ -860,12 +860,7 @@ fn try_match_name_pattern_marker(
     match marker.creates.as_str() {
         "spec" => {
             let nested = if !framework.nested_discovery.is_empty() {
-                let body_node = node.child_by_field_name("body")
-                    .or_else(|| {
-                        let mut c = node.walk();
-                        node.children(&mut c).find(|n| n.kind() == "block" || n.kind() == "statement_block")
-                    });
-                if let Some(body) = body_node {
+                if let Some(body) = node.child_by_field_name("body") {
                     find_nested_specs(body, source, framework)
                 } else {
                     vec![]
@@ -897,13 +892,8 @@ fn try_match_name_pattern_marker(
             }
         }
         "group" => {
-            let body_node = node.child_by_field_name("body")
-                .or_else(|| {
-                    let mut c = node.walk();
-                    node.children(&mut c).find(|n| n.kind() == "body_statement" || n.kind() == "block")
-                });
             let mut children = inherited_specs(node, source, framework, shared);
-            if let Some(body) = body_node {
+            if let Some(body) = node.child_by_field_name("body") {
                 children.extend(parse_children_with_shared(body, source, framework, shared));
             }
             Some(SpecNode {
@@ -1002,9 +992,7 @@ fn detect_parameterization(
             "chained_method" => count_pest_chained_dataset(node, source, &param_def.method_names),
             _ => None,
         };
-        if let Some(count) = count
-            && count > 0
-        {
+        if let Some(count) = count {
             return Some(crate::parse::ParamInfo {
                 case_count: count,
                 labels: vec![],
@@ -1332,11 +1320,11 @@ fn normalize_name(name: &str, framework: &FrameworkDef) -> String {
 
     let mut result = name.to_string();
 
-    if norm.strip_camel_test_prefix && result.starts_with("Test") && result.len() > 4 {
-        let after = &result[4..];
-        if after.starts_with(char::is_uppercase) {
-            result = after.to_string();
-        }
+    if norm.strip_camel_test_prefix
+        && let Some(after) = result.strip_prefix("Test")
+        && after.starts_with(char::is_uppercase)
+    {
+        result = after.to_string();
     }
 
     for prefix in &norm.strip_prefixes {
@@ -2766,5 +2754,121 @@ mod mutation_tests {
     fn junit_annotations_match_with_arguments_or_qualified_but_not_by_other_names() {
         let source = "class UserTest {\n    @Test(timeout = 100)\n    void testSlow() {\n    }\n    @org.junit.jupiter.api.Test\n    void testQualified() {\n    }\n    @Override\n    void testNotATest() {\n    }\n    @Contest\n    void testAlsoNot() {\n    }\n}\n";
         assert_eq!(names(&junit(source)[0].children), vec!["Slow", "Qualified"]);
+    }
+
+    fn framework(name: &str) -> &'static FrameworkDef {
+        all_frameworks().iter().find(|f| f.name == name).expect("framework")
+    }
+
+    fn parse_as(name: &str, path: &str, source: &str) -> Vec<SpecNode> {
+        parse_file(source, path, framework(name)).expect("parsed").root
+    }
+
+    fn with_types(name: &str, path: &str, source: &str) -> Vec<SpecNode> {
+        let fw = framework(name);
+        let mut registry = SharedExampleRegistry::default();
+        crate::parse::shared::scan_for_definitions(source, fw, &mut registry);
+        parse_file_with_shared(source, path, fw, Some(&registry)).expect("parsed").root
+    }
+
+    fn summary(node: &SpecNode) -> (String, SpecKind, usize) {
+        (node.name.clone(), node.kind.clone(), node.line)
+    }
+
+    fn cases(node: &SpecNode) -> Option<usize> {
+        node.parameterized.as_ref().map(|p| p.case_count)
+    }
+
+    #[test]
+    fn rust_attribute_markers_report_lines_and_see_through_comments_only() {
+        let source = "#[cfg(test)]\nmod tests {\n    #[test]\n    fn test_one() {}\n\n    #[test]\n    // why\n    /* and how */\n    fn test_two() {}\n\n    fn test_helper() {}\n}\n";
+        let root = parse_as("rust_builtin", "src/lib.rs", source);
+        assert_eq!(summary(&root[0]), ("tests".into(), SpecKind::Group, 2));
+        let specs: Vec<_> = root[0].children.iter().map(summary).collect();
+        assert_eq!(specs, vec![("one".into(), SpecKind::Spec, 4), ("two".into(), SpecKind::Spec, 9)]);
+    }
+
+    #[test]
+    fn rust_case_attributes_are_counted_through_comments_and_stop_at_the_previous_item() {
+        let source = "#[cfg(test)]\nmod tests {\n    #[rstest]\n    #[case(1)]\n    #[case(2)]\n    fn test_first(#[case] n: u32) {}\n\n    #[rstest]\n    #[case(3)]\n    // between\n    #[case(4)]\n    /* block */\n    #[case(5)]\n    fn test_second(#[case] n: u32) {}\n}\n";
+        let root = parse_as("rust_builtin", "src/lib.rs", source);
+        let counts: Vec<_> = root[0].children.iter().map(|c| (c.name.clone(), cases(c))).collect();
+        assert_eq!(counts, vec![("first".into(), Some(2)), ("second".into(), Some(3))]);
+    }
+
+    #[test]
+    fn go_specs_groups_and_subtests_report_their_lines() {
+        let source = "package user\n\nfunc TestPlain(t *testing.T) {\n}\n\nfunc TestNested(t *testing.T) {\n\tt.Run(\"inner\", func(t *testing.T) {})\n}\n";
+        let root = parse_as("go_testing", "user_test.go", source);
+        assert_eq!(summary(&root[0]), ("Plain".into(), SpecKind::Spec, 3));
+        assert_eq!(summary(&root[1]), ("Nested".into(), SpecKind::Group, 6));
+        assert_eq!(summary(&root[1].children[0]), ("inner".into(), SpecKind::Spec, 7));
+    }
+
+    fn go_cases(body: &str) -> Option<usize> {
+        let source = format!("package user\n\nfunc TestAdd(t *testing.T) {{\n{body}\n}}\n");
+        cases(&parse_as("go_testing", "user_test.go", &source)[0])
+    }
+
+    #[test]
+    fn go_table_driven_needs_literal_cases_and_a_loop_that_runs_them() {
+        let table = "\tcases := []struct{ name string }{\n\t\t{\"a\"},\n\t\t{\"b\"},\n\t}";
+        assert_eq!(go_cases(&format!("{table}\n\tfor _, tc := range cases {{\n\t\tt.Run(tc.name, func(t *testing.T) {{ _ = tc }})\n\t}}")), Some(2));
+        assert_eq!(go_cases(&format!("{table}\n\tfor _, tc := range cases {{\n\t\t_ = tc\n\t}}")), None);
+        assert_eq!(go_cases(&format!("{table}\n\tname := \"x\"\n\tt.Run(name, func(t *testing.T) {{}})\n\t_ = cases")), None);
+        assert_eq!(go_cases("\tfor _, tc := range load() {\n\t\tt.Run(tc.name, func(t *testing.T) { _ = tc })\n\t}"), None);
+    }
+
+    #[test]
+    fn empty_parameter_lists_are_not_parameterization() {
+        let py = parse_as("pytest", "tests/test_math.py", "import pytest\n\n@pytest.mark.parametrize(\"a\", [])\ndef test_none(a):\n    pass\n\n@pytest.mark.parametrize(\"a\", [1, 2])\ndef test_two(a):\n    pass\n");
+        assert_eq!(py.iter().map(cases).collect::<Vec<_>>(), vec![None, Some(2)]);
+        let js = parse_as("jest", "user.test.js", "it.each([])('none %i', (a) => {});\nit.each([[1], [2]])('two %i', (a) => {});\n");
+        assert_eq!(js.iter().map(cases).collect::<Vec<_>>(), vec![None, Some(2)]);
+        let php = parse_as("pest", "tests/run.php", "<?php\n\ntest('none', function ($a) {})->with([]);\ntest('two', function ($a) {})->with([1, 2]);\n");
+        assert_eq!(php.iter().map(cases).collect::<Vec<_>>(), vec![None, Some(2)]);
+    }
+
+    #[test]
+    fn camel_test_prefixes_are_stripped_only_before_a_capital() {
+        let pytest = framework("pytest");
+        assert_eq!(normalize_name("TestUser", pytest), "User");
+        assert_eq!(normalize_name("Testing", pytest), "Testing");
+        assert_eq!(normalize_name("Test", pytest), "Test");
+        assert_eq!(normalize_name("FooxBar", pytest), "FooxBar");
+        assert_eq!(normalize_name("Foo", pytest), "Foo");
+    }
+
+    #[test]
+    fn python_test_classes_group_by_name_pattern_with_their_line() {
+        let root = parse_as("pytest", "tests/test_user.py", "\nclass TestUser:\n    def test_valid(self):\n        pass\n");
+        assert_eq!(summary(&root[0]), ("User".into(), SpecKind::Group, 2));
+        assert_eq!(summary(&root[0].children[0]), ("valid".into(), SpecKind::Spec, 3));
+    }
+
+    #[test]
+    fn minitest_inherits_only_through_include_and_extend() {
+        let source = "module Shared\n  def test_shared\n  end\nend\n\nmodule Other\n  def test_other\n  end\nend\n\nclass TestUser < Minitest::Test\n  include Shared\n  helper Other\n  def test_own\n  end\nend\n";
+        let root = with_types("minitest", "test/models/user_test.rb", source);
+        let user = root.iter().find(|n| n.name == "User").expect("User");
+        assert_eq!(names(&user.children), vec!["shared", "own"]);
+    }
+
+    #[test]
+    fn phpunit_inherits_from_the_base_class_not_the_interfaces() {
+        let source = "<?php\n\nclass BaseTest extends TestCase {\n    public function testShared() {}\n}\n\nclass Helpers extends TestCase {\n    public function testHelper() {}\n}\n\nclass UserTest extends BaseTest implements Helpers {\n    public function testOwn() {}\n}\n";
+        let root = with_types("phpunit", "tests/UserTest.php", source);
+        let user = root.iter().find(|n| n.name.contains("User")).expect("User");
+        let mut got = names(&user.children);
+        got.sort();
+        assert_eq!(got, vec!["Own", "Shared"]);
+    }
+
+    #[test]
+    fn only_cfg_test_marks_a_test_module() {
+        let source = "#[cfg(feature = \"slow\")]\nmod slow {\n    #[test]\n    fn test_heavy() {}\n}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn test_light() {}\n}\n";
+        let root = parse_as("rust_builtin", "src/lib.rs", source);
+        let groups: Vec<_> = root.iter().filter(|n| n.kind == SpecKind::Group).map(|n| n.name.clone()).collect();
+        assert_eq!(groups, vec!["tests"]);
     }
 }
