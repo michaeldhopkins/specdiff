@@ -40,6 +40,10 @@ pub struct Cli {
 }
 
 impl Cli {
+    pub fn prints(&self, stdout_is_terminal: bool) -> bool {
+        self.print || !stdout_is_terminal
+    }
+
     pub fn tree_options(&self) -> TreeOptions {
         TreeOptions {
             changed_only: self.changed_only,
@@ -71,6 +75,16 @@ mod tests {
         assert!(opts.color);
         assert!(!opts.changed_only);
         assert!(!opts.full_context);
+    }
+
+    #[test]
+    fn output_is_printed_when_asked_or_when_stdout_is_not_a_terminal() {
+        let interactive = Cli::parse_from(["specdiff"]);
+        assert!(!interactive.prints(true));
+        assert!(interactive.prints(false));
+        let print = Cli::parse_from(["specdiff", "--print"]);
+        assert!(print.prints(true));
+        assert!(print.prints(false));
     }
 
     #[test]

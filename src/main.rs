@@ -20,7 +20,7 @@ fn main() -> Result<()> {
         _ => {}
     }
 
-    if cli.print {
+    if cli.prints(std::io::IsTerminal::is_terminal(&std::io::stdout())) {
         return run_print(&cli);
     }
 
