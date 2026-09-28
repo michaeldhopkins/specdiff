@@ -101,4 +101,41 @@ mod tests {
         assert!(!is_working_copy_rev("main"));
         assert!(!is_working_copy_rev("abc123"));
     }
+
+    fn stub() -> StubVcs {
+        StubVcs {
+            files: std::collections::HashMap::from([
+                (("spec/a_spec.rb".to_string(), "main".to_string()), "old a".to_string()),
+                (("spec/a_spec.rb".to_string(), "HEAD".to_string()), "new a".to_string()),
+            ]),
+            changed: vec![PathBuf::from("spec/a_spec.rb"), PathBuf::from("README.md")],
+            branch: "feature".into(),
+        }
+    }
+
+    #[test]
+    fn stub_reports_its_changed_files_and_contents_by_revision() {
+        let vcs = stub();
+        assert_eq!(
+            vcs.changed_files("main", "HEAD").expect("changed"),
+            vec![PathBuf::from("spec/a_spec.rb"), PathBuf::from("README.md")]
+        );
+        assert_eq!(vcs.file_at_revision(Path::new("spec/a_spec.rb"), "main").expect("main"), "old a");
+        assert_eq!(vcs.file_at_revision(Path::new("spec/a_spec.rb"), "HEAD").expect("head"), "new a");
+        assert!(vcs.file_at_revision(Path::new("README.md"), "HEAD").is_err());
+    }
+
+    #[test]
+    fn default_files_at_revision_reads_each_path_in_order() {
+        let vcs = stub();
+        let paths = [PathBuf::from("spec/a_spec.rb"), PathBuf::from("spec/missing_spec.rb")];
+        assert_eq!(
+            vcs.files_at_revision(&paths, "HEAD"),
+            vec![
+                (PathBuf::from("spec/a_spec.rb"), Some("new a".to_string())),
+                (PathBuf::from("spec/missing_spec.rb"), None),
+            ]
+        );
+        assert!(vcs.files_at_revision(&[], "HEAD").is_empty());
+    }
 }
