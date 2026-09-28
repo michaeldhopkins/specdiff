@@ -667,4 +667,163 @@ mod tests {
             "file where spec names are identical should not appear in output"
         );
     }
+
+    struct MapSource {
+        base: std::collections::BTreeMap<String, String>,
+        head: std::collections::BTreeMap<String, String>,
+        shared: Vec<(String, String)>,
+    }
+
+    impl MapSource {
+        fn head_only(files: &[(&str, &str)]) -> Self {
+            Self {
+                base: std::collections::BTreeMap::new(),
+                head: files.iter().map(|(p, c)| ((*p).to_string(), (*c).to_string())).collect(),
+                shared: vec![],
+            }
+        }
+
+        fn paths(&self) -> Vec<String> {
+            self.base.keys().chain(self.head.keys()).cloned().collect()
+        }
+    }
+
+    impl FileSource for MapSource {
+        fn list_files(&self) -> Result<Vec<String>> {
+            Ok(self.paths())
+        }
+        fn read_base(&self, rel_path: &str) -> Option<String> {
+            self.base.get(rel_path).cloned()
+        }
+        fn read_head(&self, rel_path: &str) -> Option<String> {
+            self.head
+                .get(rel_path)
+                .or_else(|| self.shared.iter().find(|(p, _)| p == rel_path).map(|(_, c)| c))
+                .cloned()
+        }
+        fn list_shared_files(&self, glob_pattern: &str) -> Result<Vec<String>> {
+            let pat = glob::Pattern::new(glob_pattern)?;
+            Ok(self.shared.iter().filter(|(p, _)| pat.matches(p)).map(|(p, _)| p.clone()).collect())
+        }
+    }
+
+    fn cli_for(framework: Option<&str>) -> Cli {
+        Cli { framework: framework.map(String::from), ..default_cli() }
+    }
+
+    fn head_registry(source: &MapSource, framework: Option<&str>) -> SharedExampleRegistry {
+        build_shared_registry(source, &source.paths(), &cli_for(framework), |s, p| s.read_head(p))
+    }
+
+    const RSPEC_SHARED: &str =
+        "RSpec.shared_examples \"auditable\" do\n  it \"records the actor\" do\n  end\nend\n";
+    const PYTEST_BASE: &str = "class BaseTest:\n    def test_inherited(self):\n        pass\n";
+
+    #[test]
+    fn default_source_lists_no_shared_files() {
+        let source = MockSource { files: vec![] };
+        assert!(source.list_shared_files("**/*").expect("list").is_empty());
+        assert!(source.list_shared_files_all().is_empty());
+    }
+
+    #[test]
+    fn registry_holds_rspec_shared_examples_and_python_base_classes() {
+        let source = MapSource::head_only(&[
+            ("spec/models/audit_spec.rb", RSPEC_SHARED),
+            ("tests/test_base.py", PYTEST_BASE),
+        ]);
+        let registry = head_registry(&source, None);
+        let shared = registry.get("auditable").expect("rspec shared examples");
+        assert_eq!(shared.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["records the actor"]);
+        let base = registry.get_type("BaseTest").expect("python base class");
+        assert_eq!(base.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["inherited"]);
+    }
+
+    #[test]
+    fn forced_framework_limits_the_registry_to_that_framework() {
+        let source = MapSource::head_only(&[
+            ("spec/models/audit_spec.rb", RSPEC_SHARED),
+            ("tests/test_base.py", PYTEST_BASE),
+        ]);
+        let rspec = head_registry(&source, Some("rspec"));
+        assert!(rspec.get("auditable").is_some());
+        assert!(rspec.get_type("BaseTest").is_none());
+        let pytest = head_registry(&source, Some("pytest"));
+        assert!(pytest.get("auditable").is_none());
+        assert!(pytest.get_type("BaseTest").is_some());
+    }
+
+    #[test]
+    fn shared_files_outside_the_change_are_scanned_through_the_source() {
+        let mut source = MapSource::head_only(&[]);
+        source.shared = vec![
+            ("spec/support/auditable.rb".into(), RSPEC_SHARED.into()),
+            ("tests/base.py".into(), PYTEST_BASE.into()),
+            ("lib/unrelated.py".into(), PYTEST_BASE.replace("BaseTest", "Elsewhere")),
+        ];
+        let registry = head_registry(&source, None);
+        assert!(registry.get("auditable").is_some());
+        assert!(registry.get_type("BaseTest").is_some());
+        assert!(registry.get_type("Elsewhere").is_none());
+    }
+
+    #[test]
+    fn base_and_head_registries_read_their_own_side() {
+        let mut source = MapSource::head_only(&[("spec/models/audit_spec.rb", RSPEC_SHARED)]);
+        source.base.insert(
+            "spec/models/audit_spec.rb".into(),
+            RSPEC_SHARED.replace("auditable", "logged"),
+        );
+        let paths = source.paths();
+        let cli = default_cli();
+        let base = build_shared_registry(&source, &paths, &cli, |s, p| s.read_base(p));
+        assert!(base.get("logged").is_some());
+        assert!(base.get("auditable").is_none());
+    }
+
+    #[test]
+    fn forced_framework_decides_which_changed_files_trigger_a_shared_scan() {
+        let source = MapSource::head_only(&[("tests/test_user.py", "class TestUser(BaseTest):\n    pass\n")]);
+        let paths = source.paths();
+        assert!(changed_files_need_shared_scan(&paths, &source, &cli_for(Some("pytest"))));
+        assert!(!changed_files_need_shared_scan(&paths, &source, &cli_for(Some("rspec"))));
+    }
+
+    #[test]
+    fn forced_framework_decides_which_changed_files_are_outlined() {
+        let source = MapSource::head_only(&[(
+            "spec/models/user_spec.rb",
+            "RSpec.describe User do\n  it \"works\" do\n  end\nend\n",
+        )]);
+        let as_rspec = diff_files(&source, &cli_for(Some("rspec"))).expect("rspec");
+        assert_eq!(as_rspec.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), vec!["models::user"]);
+        let as_pytest = diff_files(&source, &cli_for(Some("pytest"))).expect("pytest");
+        assert!(as_pytest.is_empty());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn every_shared_example_defined_in_a_spec_file_is_registered(
+            names in proptest::collection::btree_set("[a-z]{3,10}", 1..6),
+        ) {
+            let files: Vec<(String, String)> = names
+                .iter()
+                .map(|n| {
+                    (
+                        format!("spec/models/{n}_spec.rb"),
+                        format!("RSpec.shared_examples \"{n}\" do\n  it \"checks {n}\" do\n  end\nend\n"),
+                    )
+                })
+                .collect();
+            let borrowed: Vec<(&str, &str)> = files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+            let source = MapSource::head_only(&borrowed);
+            let registry = head_registry(&source, None);
+            proptest::prop_assert_eq!(registry.len(), names.len());
+            for n in &names {
+                let specs = registry.get(n).expect("registered");
+                proptest::prop_assert_eq!(specs.len(), 1);
+                proptest::prop_assert_eq!(&specs[0].name, &format!("checks {n}"));
+            }
+        }
+    }
 }
