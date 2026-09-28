@@ -63,3 +63,18 @@ impl SpecNode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_is_dynamic_is_serialized_only_when_set() {
+        let mut node = SpecNode::spec("x", 1);
+        let plain = serde_json::to_value(&node).expect("json");
+        assert!(plain.get("name_is_dynamic").is_none());
+        node.name_is_dynamic = true;
+        let dynamic = serde_json::to_value(&node).expect("json");
+        assert_eq!(dynamic.get("name_is_dynamic"), Some(&serde_json::Value::Bool(true)));
+    }
+}

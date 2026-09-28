@@ -382,6 +382,74 @@ mod tests {
         assert!(rename_line.contains("[5 cases, was 3]"));
     }
 
+    fn leaf(name: &str, kind: DiffKind) -> DiffNode {
+        DiffNode {
+            name: name.into(),
+            kind,
+            old_name: (kind == DiffKind::Renamed).then(|| format!("old {name}")),
+            param_cases: None,
+            old_param_cases: None,
+            children: vec![],
+        }
+    }
+
+    fn header_for(added: usize, removed: usize, renamed: usize) -> String {
+        let nodes = std::iter::repeat_n(DiffKind::Added, added)
+            .chain(std::iter::repeat_n(DiffKind::Removed, removed))
+            .chain(std::iter::repeat_n(DiffKind::Renamed, renamed))
+            .enumerate()
+            .map(|(i, kind)| leaf(&format!("spec {i}"), kind))
+            .collect();
+        let diffs = vec![FileDiff { path: "m::u".into(), nodes }];
+        let output = format_tree(&diffs, opts_plain(false));
+        output.lines().next().expect("header line").to_string()
+    }
+
+    #[test]
+    fn stats_header_shows_only_the_kinds_present() {
+        assert_eq!(header_for(1, 0, 0), "specdiff  +1 ");
+        assert_eq!(header_for(0, 1, 0), "specdiff  -1 ");
+        assert_eq!(header_for(0, 0, 1), "specdiff  ~>1 ");
+        assert_eq!(header_for(0, 2, 1), "specdiff  -2 ~>1 ");
+    }
+
+    #[test]
+    fn stats_header_counts_several_of_each_kind() {
+        assert_eq!(header_for(3, 2, 2), "specdiff  +3 -2 ~>2 ");
+    }
+
+    #[test]
+    fn tree_lines_render_renames_and_indent_children() {
+        let diffs = vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![DiffNode {
+                children: vec![leaf("child", DiffKind::Added), leaf("moved", DiffKind::Renamed)],
+                ..leaf("group", DiffKind::Modified)
+            }],
+        }];
+        let output = format_tree(&diffs, opts_plain(false));
+        let body: Vec<&str> = output.lines().skip_while(|l| *l != "  m::u").collect();
+        assert_eq!(
+            body,
+            vec!["  m::u", "~    group", "+      child", "->     moved (was old moved)"]
+        );
+    }
+
+    #[test]
+    fn compact_lists_changes_under_an_unchanged_group() {
+        let diffs = vec![FileDiff {
+            path: "m::u".into(),
+            nodes: vec![
+                DiffNode {
+                    children: vec![unchanged("kept"), added("new")],
+                    ..unchanged("group")
+                },
+                unchanged("untouched"),
+            ],
+        }];
+        assert_eq!(format_compact(&diffs), "+ m::u > group > new\n");
+    }
+
     #[test]
     fn param_suffix_prose_was_only() {
         let diffs = vec![FileDiff {
