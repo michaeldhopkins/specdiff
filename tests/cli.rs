@@ -2,6 +2,12 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::path::Path;
 
+fn specdiff() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_specdiff"));
+    cmd.env_clear();
+    cmd
+}
+
 fn fixtures_dir() -> Option<&'static Path> {
     let dir = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -12,8 +18,7 @@ fn fixtures_dir() -> Option<&'static Path> {
 
 #[test]
 fn cli_version() {
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .arg("--version")
         .assert()
         .success()
@@ -22,8 +27,7 @@ fn cli_version() {
 
 #[test]
 fn cli_help() {
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .arg("--help")
         .assert()
         .success()
@@ -33,8 +37,7 @@ fn cli_help() {
 #[test]
 fn cli_print_in_non_repo_errors() {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .arg("--print")
         .current_dir(dir.path())
         .assert()
@@ -44,8 +47,7 @@ fn cli_print_in_non_repo_errors() {
 
 #[test]
 fn cli_base_dir_without_head_dir_errors() {
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .args(["--print", "--base-dir", "/tmp/nonexistent"])
         .assert()
         .failure()
@@ -54,8 +56,7 @@ fn cli_base_dir_without_head_dir_errors() {
 
 #[test]
 fn cli_head_dir_without_base_dir_errors() {
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .args(["--print", "--head-dir", "/tmp/nonexistent"])
         .assert()
         .failure()
@@ -71,8 +72,7 @@ fn cli_print_tree_rspec_fixtures() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -94,8 +94,7 @@ fn cli_print_json_rspec_fixtures() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -117,8 +116,7 @@ fn cli_print_compact_rust_fixtures() {
     let base = fixtures.join("rust_builtin/base");
     let head = fixtures.join("rust_builtin/head");
 
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -140,8 +138,7 @@ fn cli_print_changed_only() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    let output = Command::cargo_bin("specdiff")
-        .expect("binary")
+    let output = specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -164,8 +161,7 @@ fn cli_print_shared_example_resolution() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    let output = Command::cargo_bin("specdiff")
-        .expect("binary")
+    let output = specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -189,8 +185,7 @@ fn cli_print_filter() {
     let base = fixtures.join("rspec/base");
     let head = fixtures.join("rspec/head");
 
-    let output = Command::cargo_bin("specdiff")
-        .expect("binary")
+    let output = specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -230,8 +225,7 @@ fn cli_print_truncates_long_unchanged_run_by_default() {
     std::fs::write(&base_spec_path, &spec).expect("write base");
     std::fs::write(&head_spec_path, &head_spec).expect("write head");
 
-    let output = Command::cargo_bin("specdiff")
-        .expect("binary")
+    let output = specdiff()
         .args([
             "--print",
             "--base-dir", base_dir.path().to_str().expect("utf8"),
@@ -272,8 +266,7 @@ fn cli_print_full_context_disables_truncation() {
     std::fs::write(&base_spec_path, &spec).expect("write base");
     std::fs::write(&head_spec_path, &head_spec).expect("write head");
 
-    let output = Command::cargo_bin("specdiff")
-        .expect("binary")
+    let output = specdiff()
         .args([
             "--print",
             "--base-dir", base_dir.path().to_str().expect("utf8"),
@@ -303,8 +296,7 @@ fn cli_print_parameterized_case_count() {
     let base = fixtures.join("pytest/base");
     let head = fixtures.join("pytest/head");
 
-    let output = Command::cargo_bin("specdiff")
-        .expect("binary")
+    let output = specdiff()
         .args([
             "--print",
             "--base-dir", base.to_str().expect("utf8"),
@@ -351,8 +343,7 @@ fn cli_print_in_git_repo_outlines_changed_test_files_only() {
     std::fs::write(root.join("README.md"), "head\n").expect("rewrite readme");
     git(root, &["commit", "-q", "-am", "head"]);
 
-    Command::cargo_bin("specdiff")
-        .expect("binary")
+    specdiff()
         .args(["--print", "--no-color", "--format", "compact"])
         .current_dir(root)
         .assert()
