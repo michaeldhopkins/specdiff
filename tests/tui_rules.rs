@@ -10,11 +10,11 @@ use std::path::{Path, PathBuf};
 use quote::ToTokens;
 use syn::visit::Visit;
 
-fn rs_files(dir: &Path, skip: &Path, found: &mut Vec<PathBuf>) {
+fn rs_files(dir: &Path, skip: Option<&Path>, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.starts_with(skip) {
+        if skip.is_some_and(|s| path.starts_with(s)) {
             continue;
         }
         if path.is_dir() {
@@ -201,6 +201,13 @@ impl<'a> Visit<'a> for Harness {
 
 fn path_violations(file: &str, text: &str) -> Vec<String> {
     let mut out = Vec::new();
+    let on_a_pty = text.contains("portable_pty") && text.contains("env!(\"CARGO_BIN_EXE_");
+    let sets_stub_path = ["\"PATH\",", "\"PATH\".into(),", "\"PATH\".to_string(),", "\"PATH\".to_owned(),"]
+        .iter()
+        .any(|key| text.contains(key));
+    if on_a_pty && !sets_stub_path {
+        out.push(format!("{file}: runs the binary on a pty without setting PATH to the stub directory"));
+    }
     if text.contains("var(\"PATH\")") || text.contains("var_os(\"PATH\")") {
         out.push(format!("{file}: reads the inherited PATH"));
     }
@@ -270,7 +277,7 @@ fn violations(root: &Path) -> Vec<String> {
     }
 
     let mut sources = Vec::new();
-    rs_files(&root.join("src"), &root.join("src/__none__"), &mut sources);
+    rs_files(&root.join("src"), None, &mut sources);
     for path in sources {
         let mut visitor = Programs { file: rel(root, &path), allowed: &programs, out: Vec::new() };
         visitor.visit_file(&parse(&path));
@@ -278,7 +285,7 @@ fn violations(root: &Path) -> Vec<String> {
     }
 
     let mut tests = Vec::new();
-    rs_files(&root.join("tests"), &root.join("tests/fixtures"), &mut tests);
+    rs_files(&root.join("tests"), Some(&root.join("tests/fixtures")), &mut tests);
     for path in tests {
         let mut visitor = Harness { file: rel(root, &path), deadline_loops: Vec::new(), out: Vec::new() };
         let file = parse(&path);
@@ -309,6 +316,7 @@ fn the_check_finds_every_kind_of_violation_in_its_fixture() {
         "src/main.rs: runs /usr/bin/security by absolute path, past every stub",
         "src/main.rs: runs a program chosen at run time: std::process::Command::new(editor)",
         "src/main.rs: runs open, which tests/tui.toml `programs` does not list",
+        "tests/pty_without_path.rs: runs the binary on a pty without setting PATH to the stub directory",
         "tests/tui.rs: quits spawns the binary without env_clear()",
         "tests/tui.rs: reads the inherited PATH",
         "tests/tui.rs: sets PATH to \"/usr/bin\".to_string(), not the stub directory's stubs.path()",
