@@ -131,6 +131,47 @@ Not fuzzed, and why:
 - CLI arguments: supplied by the person running it. `--filter` is exercised
   by `outline_diff` anyway.
 
+## Terminal UI testing
+
+Rule: the "Terminal UIs" quality ratchet the owner keeps for every project; method: the
+`tui-testing` skill. specdiff was the first project to adopt it (2026-09-28).
+Never check the TUI by driving it by hand.
+
+- Decide, then do. `src/tui/input.rs::action_for` maps a crossterm event to an
+  `Action` (pure; a resize maps to `Repaint`). `src/tui/state.rs::AppState::apply`
+  reduces it and returns an `Effect` (`Quit`, `Redraw`, `Repaint`, `None`). The
+  run loop in `src/tui/mod.rs` only performs it. Watcher filtering is
+  `src/tui/watch.rs::is_relevant_batch`. All unit-tested.
+- Render. `src/tui/render.rs` tests draw into ratatui's `TestBackend` through a
+  `screen(diffs, scroll, opts, w, h)` helper and assert named rows of every view:
+  outline, empty, changed-only, scrolled.
+- Real binary. `tests/tui.rs` on the harness `tests/support/pty.rs`
+  (portable-pty + vt100): `env!("CARGO_BIN_EXE_specdiff")`, `env_clear()`, HOME
+  and spec trees in a TempDir, PATH = a stub directory (one stub per program in
+  `tests/tui.toml`, each recording its argv) plus `/usr/bin:/bin` for the stubs'
+  own `mv` and `cat`, a fixed 30x100 terminal, polls with a 10 s deadline (short
+  enough that a failing wait ends inside cargo-mutants' timeout), the child
+  killed on drop. Covered: q, Esc and Ctrl-C quit and leave the alternate screen;
+  a resize repaints at the new size; `--print` is coloured on a terminal and
+  plain in a pipe; without `--print`, a pipe gets the printed outline; and VCS
+  mode in a TempDir git repo (built by the test with real git, a local identity
+  and the fake HOME) draws the branch's outline. Every test asserts no stubbed
+  program ran. About 0.1 s for the suite on a quiet machine; runs in CI with
+  `cargo test`.
+- Not supported, so not tested: repaint after the terminal wiped its screen.
+  specdiff asks for no focus events and has no redraw key; it repaints on the
+  next resize, key or file change.
+- No key launches anything, so `launches = []`. Programs `src/` can run: `jj`
+  (through vcs-runner) and, for safety, `git` (read through git2, never run).
+- `tests/tui_rules.rs` enforces the rule against `tests/tui.toml` and tests
+  itself on `tests/fixtures/tui_rules/{bad,good}`. `owed` is empty; keep it so.
+  A new key, view or launch gets its test and its manifest entry in the same
+  change.
+
+Found while adopting it: a resize left a stale frame until the next key or file
+event, and running without `--print` into a pipe panicked in ratatui (exit 101).
+Both fixed in 0.21.3.
+
 ## Mutation testing
 
 Method: the `rust-mutation-testing` skill. Config: `.cargo/mutants.toml`. CI:
@@ -189,6 +230,19 @@ are equivalent and excluded: the serial/parallel threshold in
 `diff_with_registries`, and `&&` to `||` on `scan_spec_files_for_definitions`,
 which only matters for jest, whose shared helpers never register (a real
 gap, recorded in TODO.md).
+
+Third CI slice (run 36367316465): 21 missed, in `src/tui/mod.rs` (merge-base
+cache and staleness, the VCS test-file filter, watch paths, the watcher's event
+filter, the tick's merge-base check, the quit and Ctrl-C bindings, the
+changed-only toggle) and `src/vcs/mod.rs` (the default `files_at_revision`,
+`StubVcs`). The TUI had no key, render or terminal tests at all; resolving
+them was adopting the Terminal UIs rule (section above). Every one now has a
+test, and a follow-up `cargo mutants` over `src/tui/` found the watch mode's
+registry path, VCS mode, the rest of `StubVcs` and the header's rename guard
+untested too; those have tests as well. No exclusions. Confirmed afterwards:
+`src/tui/mod.rs` + `src/vcs/mod.rs` 53 mutants, 44 caught, 9 unviable, 0
+missed (5 min); `src/tui/{input,state,watch,render}.rs` 76 mutants, 0 missed
+after the header test (4 min).
 
 Excluded as equivalent, with the argument next to each in `.cargo/mutants.toml`:
 the two `* 1` mutants of the resume index in `truncate_unchanged_runs`
