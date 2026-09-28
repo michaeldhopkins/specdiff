@@ -1,48 +1,26 @@
+mod input;
 mod render;
+mod state;
+mod watch;
 
 use crate::cli::Cli;
 use crate::diff::filter_file_diffs;
 use crate::diff::types::FileDiff;
 use crate::parse;
+use crate::parse::shared::SharedExampleRegistry;
 use crate::pipeline::{self, DirectorySource, VcsSource};
 use crate::vcs;
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
+use crossterm::event;
 use ratatui::DefaultTerminal;
+use state::{AppState, Effect};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 enum AppEvent {
     FileChanged,
-    RegistryReady(crate::parse::shared::SharedExampleRegistry),
     Tick,
-}
-
-#[allow(clippy::struct_excessive_bools)]
-struct AppState {
-    file_diffs: Vec<FileDiff>,
-    scroll: usize,
-    section_offsets: Vec<usize>,
-    changed_only: bool,
-    full_context: bool,
-    filter: Option<String>,
-    quit: bool,
-    needs_redraw: bool,
-    max_scroll: usize,
-    cached_merge_base: Option<String>,
-    merge_base_time: std::time::Instant,
-    shared_registry: Option<crate::parse::shared::SharedExampleRegistry>,
-}
-
-impl AppState {
-    fn render_opts(&self) -> render::RenderOptions {
-        render::RenderOptions {
-            changed_only: self.changed_only,
-            full_context: self.full_context,
-        }
-    }
 }
 
 enum WatchMode<'a> {
@@ -67,10 +45,17 @@ impl WatchMode<'_> {
         &self,
         state: &mut AppState,
         cli: &Cli,
-        registry: &crate::parse::shared::SharedExampleRegistry,
+        registry: &SharedExampleRegistry,
     ) -> Result<Vec<FileDiff>> {
         let mb = self.resolve_merge_base(state);
         self.with_source(mb.as_deref(), |source| pipeline::diff_files_with_registry(source, cli, registry))
+    }
+
+    fn recompute(&self, state: &mut AppState, cli: &Cli) -> Result<Vec<FileDiff>> {
+        match state.shared_registry.clone() {
+            Some(registry) => self.compute_diffs_with_registry(state, cli, &registry),
+            None => self.compute_diffs_fast(state, cli),
+        }
     }
 
     fn needs_shared_scan(&self, state: &mut AppState, cli: &Cli) -> bool {
@@ -82,7 +67,7 @@ impl WatchMode<'_> {
         .unwrap_or(false)
     }
 
-    fn build_registry(&self, state: &mut AppState, cli: &Cli) -> crate::parse::shared::SharedExampleRegistry {
+    fn build_registry(&self, state: &mut AppState, cli: &Cli) -> SharedExampleRegistry {
         let mb = self.resolve_merge_base(state);
         self.with_source(mb.as_deref(), |source| {
             let all_paths = source.list_files().unwrap_or_default();
@@ -100,19 +85,25 @@ impl WatchMode<'_> {
     fn resolve_merge_base(&self, state: &mut AppState) -> Option<String> {
         match self {
             WatchMode::Vcs { vcs, base_rev, head_rev } => {
-                let stale = state.merge_base_time.elapsed() > Duration::from_secs(2);
-                if !stale
-                    && let Some(cached) = &state.cached_merge_base
-                {
+                let now = Instant::now();
+                if let Some(cached) = state.cached_merge_base(now) {
                     return Some(cached.clone());
                 }
-                let mb = vcs.merge_base(base_rev, head_rev)
-                    .unwrap_or_else(|_| base_rev.clone());
-                state.cached_merge_base = Some(mb.clone());
-                state.merge_base_time = std::time::Instant::now();
+                let mb = vcs.merge_base(base_rev, head_rev).unwrap_or_else(|_| base_rev.clone());
+                state.remember_merge_base(mb.clone(), now);
                 Some(mb)
             }
             WatchMode::Directory { .. } => None,
+        }
+    }
+
+    fn merge_base_moved(&self, state: &AppState) -> bool {
+        match self {
+            WatchMode::Vcs { vcs, base_rev, head_rev } => {
+                let fresh = vcs.merge_base(base_rev, head_rev).unwrap_or_else(|_| base_rev.clone());
+                state.merge_base_moved(&fresh)
+            }
+            WatchMode::Directory { .. } => false,
         }
     }
 
@@ -143,11 +134,9 @@ impl WatchMode<'_> {
         }
     }
 
-    fn watch_paths(&self) -> Vec<PathBuf> {
+    fn watch_paths(&self, cwd: Option<PathBuf>) -> Vec<PathBuf> {
         match self {
-            WatchMode::Vcs { .. } => {
-                std::env::current_dir().map(|c| vec![c]).unwrap_or_default()
-            }
+            WatchMode::Vcs { .. } => cwd.into_iter().collect(),
             WatchMode::Directory { base, head } => {
                 let mut paths = vec![head.clone()];
                 if base != head {
@@ -193,28 +182,23 @@ fn run_watch_directory(base: &str, head: &str, cli: &Cli) -> Result<()> {
     run_watch_loop(&mode, cli)
 }
 
-fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
-    let mut state = AppState {
-        file_diffs: vec![],
-        scroll: 0,
-        section_offsets: vec![],
-        max_scroll: 0,
-        changed_only: cli.changed_only,
-        full_context: cli.full_context,
-        filter: cli.filter.clone(),
-        quit: false,
-        needs_redraw: true,
-        cached_merge_base: None,
-        merge_base_time: std::time::Instant::now(),
-        shared_registry: None,
-    };
+fn visible_diffs(state: &AppState) -> std::borrow::Cow<'_, [FileDiff]> {
+    match &state.filter {
+        Some(pattern) => std::borrow::Cow::Owned(filter_file_diffs(state.file_diffs.clone(), pattern)),
+        None => std::borrow::Cow::Borrowed(&state.file_diffs),
+    }
+}
 
+fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
+    let mut state = AppState::new(cli.changed_only, cli.full_context, cli.filter.clone());
     state.file_diffs = mode.compute_diffs_fast(&mut state, cli)?;
 
     let (tx, rx) = mpsc::channel();
 
     let fs_tx = tx.clone();
-    let _debouncer = setup_watcher(mode.watch_paths(), fs_tx)?;
+    let _debouncer = watch::setup_watcher(mode.watch_paths(std::env::current_dir().ok()), move || {
+        let _ = fs_tx.send(AppEvent::FileChanged);
+    })?;
 
     let tick_tx = tx.clone();
     std::thread::spawn(move || loop {
@@ -233,18 +217,7 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
     let mut terminal = ratatui::init();
 
     if mode.needs_shared_scan(&mut state, cli) {
-        let filtered;
-        let diffs: &[FileDiff] = if let Some(pattern) = &state.filter {
-            filtered = filter_file_diffs(state.file_diffs.clone(), pattern);
-            &filtered
-        } else {
-            &state.file_diffs
-        };
-        let opts = state.render_opts();
-        terminal.draw(|frame| {
-            render::render(frame, diffs, state.scroll, opts);
-        })?;
-
+        draw(&mut terminal, &mut state)?;
         let registry = mode.build_registry(&mut state, cli);
         if let Ok(diffs) = mode.compute_diffs_with_registry(&mut state, cli, &registry) {
             state.file_diffs = diffs;
@@ -259,33 +232,20 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
     result
 }
 
-fn setup_watcher(
-    paths: Vec<PathBuf>,
-    tx: mpsc::Sender<AppEvent>,
-) -> Result<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> {
-    let mut debouncer = new_debouncer(
-        Duration::from_millis(200),
-        move |events: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
-            if let Ok(events) = events {
-                let dominated = events.iter().any(|e| {
-                    e.kind == DebouncedEventKind::Any && is_relevant_path(&e.path)
-                });
-                if dominated {
-                    let _ = tx.send(AppEvent::FileChanged);
-                }
-            }
-        },
-    )?;
-
-    for path in paths {
-        if path.exists() {
-            debouncer
-                .watcher()
-                .watch(&path, notify::RecursiveMode::Recursive)?;
-        }
-    }
-
-    Ok(debouncer)
+fn draw(terminal: &mut DefaultTerminal, state: &mut AppState) -> Result<()> {
+    let diffs = visible_diffs(state);
+    let opts = state.render_opts();
+    let scroll = state.scroll;
+    let mut result = render::RenderResult { section_offsets: vec![], max_scroll: 0 };
+    terminal.draw(|frame| {
+        result = render::render(frame, &diffs, scroll, opts);
+    })?;
+    drop(diffs);
+    state.section_offsets = result.section_offsets;
+    state.max_scroll = result.max_scroll;
+    state.scroll = state.scroll.min(state.max_scroll);
+    state.needs_redraw = false;
+    Ok(())
 }
 
 fn run_event_loop(
@@ -296,228 +256,113 @@ fn run_event_loop(
     cli: &Cli,
 ) -> Result<()> {
     loop {
-        if state.quit {
-            break;
-        }
-
         if state.needs_redraw {
-            let filtered;
-            let diffs: &[FileDiff] = if let Some(pattern) = &state.filter {
-                filtered = filter_file_diffs(state.file_diffs.clone(), pattern);
-                &filtered
-            } else {
-                &state.file_diffs
-            };
-            let mut result = render::RenderResult { section_offsets: vec![], max_scroll: 0 };
-            let opts = state.render_opts();
-            terminal.draw(|frame| {
-                result = render::render(frame, diffs, state.scroll, opts);
-            })?;
-            state.section_offsets = result.section_offsets;
-            state.max_scroll = result.max_scroll;
-            state.scroll = state.scroll.min(state.max_scroll);
-            state.needs_redraw = false;
+            draw(terminal, state)?;
         }
 
-        if event::poll(Duration::from_millis(50))?
-            && let Event::Key(key) = event::read()?
-        {
-            handle_key(state, key);
+        if event::poll(Duration::from_millis(50))? {
+            match state.apply(input::action_for(&event::read()?)) {
+                Effect::Quit => return Ok(()),
+                Effect::Repaint => terminal.clear()?,
+                Effect::Redraw | Effect::None => {}
+            }
         }
 
         match rx.try_recv() {
             Ok(AppEvent::FileChanged) => {
                 state.cached_merge_base = None;
-                let reg = state.shared_registry.clone();
-                let diffs = if let Some(reg) = &reg {
-                    mode.compute_diffs_with_registry(state, cli, reg)?
-                } else {
-                    mode.compute_diffs_fast(state, cli)?
-                };
-                state.file_diffs = diffs;
+                state.file_diffs = mode.recompute(state, cli)?;
                 state.needs_redraw = true;
             }
-            Ok(AppEvent::RegistryReady(registry)) => {
-                if let Ok(diffs) = mode.compute_diffs_with_registry(state, cli, &registry) {
-                    state.file_diffs = diffs;
-                    state.shared_registry = Some(registry);
+            Ok(AppEvent::Tick) => {
+                if mode.merge_base_moved(state) {
+                    state.cached_merge_base = None;
+                    state.file_diffs = mode.recompute(state, cli)?;
                     state.needs_redraw = true;
                 }
             }
-            Ok(AppEvent::Tick) => {
-                if let WatchMode::Vcs { vcs, base_rev, head_rev } = mode {
-                    let fresh = vcs.merge_base(base_rev, head_rev)
-                        .unwrap_or_else(|_| base_rev.clone());
-                    let stale = state.cached_merge_base.as_ref() != Some(&fresh);
-                    if stale {
-                        state.cached_merge_base = None;
-                        let reg = state.shared_registry.clone();
-                        let diffs = if let Some(reg) = &reg {
-                            mode.compute_diffs_with_registry(state, cli, reg)?
-                        } else {
-                            mode.compute_diffs_fast(state, cli)?
-                        };
-                        state.file_diffs = diffs;
-                        state.needs_redraw = true;
-                    }
-                }
-            }
             Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
         }
     }
-
-    Ok(())
-}
-
-fn handle_key(state: &mut AppState, key: KeyEvent) {
-    match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => state.quit = true,
-        KeyCode::Char('j') => {
-            state.scroll = next_section(state.scroll, &state.section_offsets);
-            state.needs_redraw = true;
-        }
-        KeyCode::Char('k') => {
-            state.scroll = prev_section(state.scroll, &state.section_offsets);
-            state.needs_redraw = true;
-        }
-        KeyCode::Down => {
-            state.scroll = state.scroll.saturating_add(1);
-            state.needs_redraw = true;
-        }
-        KeyCode::Up => {
-            state.scroll = state.scroll.saturating_sub(1);
-            state.needs_redraw = true;
-        }
-        KeyCode::PageDown => {
-            state.scroll = state.scroll.saturating_add(20);
-            state.needs_redraw = true;
-        }
-        KeyCode::PageUp => {
-            state.scroll = state.scroll.saturating_sub(20);
-            state.needs_redraw = true;
-        }
-        KeyCode::Home | KeyCode::Char('g') => {
-            state.scroll = 0;
-            state.needs_redraw = true;
-        }
-        KeyCode::End | KeyCode::Char('G') => {
-            state.scroll = usize::MAX;
-            state.needs_redraw = true;
-        }
-        KeyCode::Char('c') => {
-            state.changed_only = !state.changed_only;
-            state.needs_redraw = true;
-        }
-        _ => {}
-    }
-    state.scroll = state.scroll.min(state.max_scroll);
-}
-
-fn next_section(current: usize, offsets: &[usize]) -> usize {
-    offsets
-        .iter()
-        .find(|&&o| o > current)
-        .copied()
-        .unwrap_or(current)
-}
-
-fn prev_section(current: usize, offsets: &[usize]) -> usize {
-    offsets
-        .iter()
-        .rev()
-        .find(|&&o| o < current)
-        .copied()
-        .unwrap_or(0)
-}
-
-fn is_relevant_path(path: &std::path::Path) -> bool {
-    let s = path.to_string_lossy();
-    if s.contains(".git/refs") || s.contains(".jj/repo") {
-        return true;
-    }
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            matches!(ext, "rb" | "rs" | "py" | "js" | "jsx" | "ts" | "tsx" | "go" | "exs" | "java" | "php")
-        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use crate::vcs::StubVcs;
 
-    #[test]
-    fn relevant_path_test_files() {
-        assert!(is_relevant_path(Path::new("spec/models/user_spec.rb")));
-        assert!(is_relevant_path(Path::new("src/lib.rs")));
-        assert!(is_relevant_path(Path::new("tests/test_user.py")));
-        assert!(is_relevant_path(Path::new("user.test.js")));
-        assert!(is_relevant_path(Path::new("user.test.tsx")));
-        assert!(is_relevant_path(Path::new("user_test.go")));
-        assert!(is_relevant_path(Path::new("test/user_test.exs")));
-        assert!(is_relevant_path(Path::new("tests/UserTest.java")));
-        assert!(is_relevant_path(Path::new("tests/UserTest.php")));
+    fn stub_vcs() -> StubVcs {
+        StubVcs {
+            changed: vec![PathBuf::from("spec/models/user_spec.rb"), PathBuf::from("README.md")],
+            ..StubVcs::default()
+        }
+    }
+
+    fn vcs_mode(vcs: &StubVcs) -> WatchMode<'_> {
+        WatchMode::Vcs { vcs, base_rev: "main".into(), head_rev: "HEAD".into() }
     }
 
     #[test]
-    fn relevant_path_vcs_refs() {
-        assert!(is_relevant_path(Path::new("/repo/.git/refs/heads/main")));
-        assert!(is_relevant_path(Path::new("/repo/.jj/repo/op_heads/abc")));
+    fn vcs_mode_sources_only_changed_test_files() {
+        let vcs = stub_vcs();
+        let files = vcs_mode(&vcs).with_source(Some("base"), |s| s.list_files()).expect("files");
+        assert_eq!(files, vec!["spec/models/user_spec.rb".to_string()]);
     }
 
     #[test]
-    fn irrelevant_paths() {
-        assert!(!is_relevant_path(Path::new("Cargo.toml")));
-        assert!(!is_relevant_path(Path::new("README.md")));
-        assert!(!is_relevant_path(Path::new("src/main.css")));
-        assert!(!is_relevant_path(Path::new(".git/index")));
-        assert!(!is_relevant_path(Path::new(".git/COMMIT_EDITMSG")));
+    fn merge_base_is_cached_then_recomputed_once_stale() {
+        let vcs = stub_vcs();
+        let mode = vcs_mode(&vcs);
+        let mut state = AppState::new(false, false, None);
+        assert_eq!(mode.resolve_merge_base(&mut state).as_deref(), Some("base"));
+        state.cached_merge_base = Some("cached".into());
+        assert_eq!(mode.resolve_merge_base(&mut state).as_deref(), Some("cached"));
+        state.merge_base_time = Instant::now() - Duration::from_secs(3);
+        assert_eq!(mode.resolve_merge_base(&mut state).as_deref(), Some("base"));
+        assert_eq!(state.cached_merge_base.as_deref(), Some("base"));
     }
 
     #[test]
-    fn next_section_jumps_forward() {
-        let offsets = vec![0, 10, 20];
-        assert_eq!(next_section(0, &offsets), 10);
-        assert_eq!(next_section(10, &offsets), 20);
-        assert_eq!(next_section(20, &offsets), 20);
+    fn a_tick_notices_only_a_moved_merge_base() {
+        let vcs = stub_vcs();
+        let mode = vcs_mode(&vcs);
+        let mut state = AppState::new(false, false, None);
+        state.cached_merge_base = Some("base".into());
+        assert!(!mode.merge_base_moved(&state));
+        state.cached_merge_base = Some("older".into());
+        assert!(mode.merge_base_moved(&state));
+        let dirs = WatchMode::Directory { base: "a".into(), head: "b".into() };
+        assert!(!dirs.merge_base_moved(&state));
     }
 
     #[test]
-    fn prev_section_jumps_backward() {
-        let offsets = vec![0, 10, 20];
-        assert_eq!(prev_section(20, &offsets), 10);
-        assert_eq!(prev_section(10, &offsets), 0);
-        assert_eq!(prev_section(0, &offsets), 0);
+    fn directory_mode_watches_both_sides_once() {
+        let two = WatchMode::Directory { base: "base".into(), head: "head".into() };
+        assert_eq!(two.watch_paths(None), vec![PathBuf::from("head"), PathBuf::from("base")]);
+        let one = WatchMode::Directory { base: "same".into(), head: "same".into() };
+        assert_eq!(one.watch_paths(None), vec![PathBuf::from("same")]);
     }
 
     #[test]
-    fn merge_base_cache_detects_staleness() {
-        let mut state = AppState {
-            file_diffs: vec![],
-            scroll: 0,
-            section_offsets: vec![],
-            max_scroll: 0,
-            changed_only: false,
-            full_context: false,
-            filter: None,
-            quit: false,
-            needs_redraw: false,
-            cached_merge_base: Some("abc123".to_string()),
-            merge_base_time: std::time::Instant::now(),
-            shared_registry: None,
+    fn vcs_mode_watches_the_working_directory() {
+        let vcs = stub_vcs();
+        let mode = vcs_mode(&vcs);
+        assert_eq!(mode.watch_paths(Some(PathBuf::from("/repo"))), vec![PathBuf::from("/repo")]);
+        assert!(mode.watch_paths(None).is_empty());
+    }
+
+    #[test]
+    fn a_filter_narrows_what_is_drawn() {
+        let file = |path: &str| FileDiff {
+            path: path.into(),
+            nodes: crate::diff::diff_spec_nodes(&[], &[crate::parse::SpecNode::spec("works", 1)]),
         };
-
-        assert_eq!(state.cached_merge_base.as_deref(), Some("abc123"));
-
-        let fresh = "def456".to_string();
-        let stale = state.cached_merge_base.as_ref() != Some(&fresh);
-        assert!(stale, "different merge-base should be detected as stale");
-
-        state.cached_merge_base = Some(fresh.clone());
-        let stale = state.cached_merge_base.as_ref() != Some(&fresh);
-        assert!(!stale, "same merge-base should not be stale");
+        let mut state = AppState::new(false, false, None);
+        state.file_diffs = vec![file("models::user"), file("models::post")];
+        assert_eq!(visible_diffs(&state).len(), 2);
+        state.filter = Some("USER".into());
+        let visible = visible_diffs(&state);
+        assert_eq!(visible.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), vec!["models::user"]);
     }
 }

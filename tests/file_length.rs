@@ -19,7 +19,6 @@ fn pinned() -> HashMap<&'static str, usize> {
         ("src/diff/mod.rs", 405),
         ("src/parse/engine.rs", 1393),
         ("src/pipeline.rs", 403),
-        ("src/tui/mod.rs", 446),
     ])
 }
 
