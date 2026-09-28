@@ -168,11 +168,20 @@ Adoption, 2026-09-27, cargo-mutants 27.1.0, 901 mutants in the tree:
 - Timeouts in `truncate_unchanged_runs` are real detections: mutating its loop
   counters makes it spin forever.
 
+First CI slice (run 36363441688, 11.2 minutes, so N = 12 holds): 19 missed, in
+`src/output/mod.rs` (the stats header's `> 0` guards and `push_stat_str`, the
+rename line's `(was …)`, child indentation, the compact-output skip) and the
+`name_is_dynamic` serialization guard in `src/parse/mod.rs`. Seventeen now
+have tests asserting exact header, tree and compact text. Two are equivalent
+and excluded: `modified < 0` in `push_stats_header`, because `Stats.modified`
+is never counted (a real gap, recorded in TODO.md), and `==` to `!=` in
+`collect_compact_lines`, whose skip is only a shortcut.
+
 Excluded as equivalent, with the argument next to each in `.cargo/mutants.toml`:
 the two `* 1` mutants of the resume index in `truncate_unchanged_runs`
 (anchored by line and column, so they reappear if the line moves), the
-empty-string shortcut in `name_similarity`, and the serial/parallel threshold
-in `JjVcs::files_at_revision`.
+empty-string shortcut in `name_similarity`, the serial/parallel threshold
+in `JjVcs::files_at_revision`, and the two `src/output/mod.rs` mutants above.
 
 ## Adding a new framework
 
