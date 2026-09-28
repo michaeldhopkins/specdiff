@@ -301,4 +301,98 @@ mod tests {
         assert!(starts[0].contains("file_a"));
         assert!(starts[1].contains("file_b"));
     }
+
+    fn screen(diffs: &[FileDiff], scroll: usize, opts: RenderOptions, width: u16, height: u16) -> (Vec<String>, RenderResult) {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).expect("a terminal");
+        let mut result = RenderResult { section_offsets: vec![], max_scroll: 0 };
+        terminal
+            .draw(|frame| {
+                result = render(frame, diffs, scroll, opts);
+            })
+            .expect("drawing");
+        let buffer = terminal.backend().buffer().clone();
+        let rows = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        (rows, result)
+    }
+
+    fn two_files() -> Vec<FileDiff> {
+        vec![
+            FileDiff {
+                path: "models::user".into(),
+                nodes: vec![DiffNode {
+                    children: vec![
+                        unchanged("validates email"),
+                        added("validates uniqueness"),
+                        DiffNode {
+                            kind: DiffKind::Removed,
+                            ..unchanged("allows blank")
+                        },
+                        DiffNode {
+                            kind: DiffKind::Renamed,
+                            old_name: Some("checks age".into()),
+                            ..unchanged("checks age range")
+                        },
+                    ],
+                    kind: DiffKind::Modified,
+                    ..unchanged("User")
+                }],
+            },
+            FileDiff { path: "models::post".into(), nodes: vec![unchanged("Post")] },
+        ]
+    }
+
+    #[test]
+    fn the_outline_view_shows_stats_files_specs_and_keys() {
+        let (rows, result) = screen(&two_files(), 0, RenderOptions { changed_only: false, full_context: true }, 60, 16);
+        assert_eq!(rows[0], "specdiff  +1 -1 ~>1");
+        assert!(rows[1].is_empty());
+        assert!(rows[2].chars().all(|c| c == '─'), "header rule: {:?}", rows[2]);
+        assert_eq!(rows[3], "  models::user");
+        assert_eq!(rows[4], "~    User");
+        assert_eq!(rows[5], "       validates email");
+        assert_eq!(rows[6], "+      validates uniqueness");
+        assert_eq!(rows[7], "-      allows blank");
+        assert_eq!(rows[8], "->     checks age -> checks age range");
+        assert_eq!(rows[10], "  models::post");
+        assert_eq!(rows[15], "[q]uit  [c]hanged-only  [j/k] next/prev file");
+        assert_eq!(result.section_offsets, vec![0, 7]);
+        assert_eq!(result.max_scroll, 0);
+    }
+
+    #[test]
+    fn the_empty_view_says_there_are_no_changes() {
+        let (rows, _) = screen(&[], 0, opts_truncating(), 60, 8);
+        assert_eq!(rows[0], "specdiff  No test outline changes");
+        assert!(rows[3..7].iter().all(String::is_empty));
+        assert_eq!(rows[7], "[q]uit  [c]hanged-only  [j/k] next/prev file");
+    }
+
+    #[test]
+    fn the_changed_only_view_drops_unchanged_files_and_specs() {
+        let (rows, result) = screen(&two_files(), 0, RenderOptions { changed_only: true, full_context: false }, 60, 12);
+        let body = rows[3..11].join("\n");
+        assert!(body.contains("validates uniqueness"));
+        assert!(!body.contains("validates email"));
+        assert!(!body.contains("models::post"));
+        assert_eq!(result.section_offsets, vec![0]);
+    }
+
+    #[test]
+    fn a_scrolled_view_starts_at_the_scroll_offset_and_reports_how_far_it_can_go() {
+        let opts = RenderOptions { changed_only: false, full_context: true };
+        let (rows, result) = screen(&two_files(), 7, opts, 60, 7);
+        assert_eq!(result.max_scroll, 7);
+        assert_eq!(rows[3], "  models::post");
+        let (clamped, _) = screen(&two_files(), 100, opts, 60, 7);
+        assert_eq!(clamped[3], "  models::post");
+    }
 }
