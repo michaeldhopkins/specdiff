@@ -1,0 +1,87 @@
+# What specdiff's terminal UI does that must be tested, and the test that covers each.
+# Checked by tests/tui_rules.rs (the "Terminal UIs" rule; method: the `tui-testing` skill).
+# A test is named `<file in tests/ or src/ path>::<fn name>`.
+
+# Every program code under src/ can run. The PTY harness stubs each one and puts only the
+# stub directory (plus /usr/bin:/bin for the stubs' own `mv`) on PATH. `jj` is run through
+# vcs-runner (`run_jj*`); `git` is read through the git2 library, never run, and is stubbed
+# so a regression that starts running it is recorded instead of reaching the real one.
+programs = ["jj", "git"]
+
+# Keys that launch a program or write outside the app. specdiff's TUI has none: it reads
+# files and redraws, and no key runs anything.
+launches = []
+
+# Keys, views or launches without tests yet. May only shrink.
+owed = []
+
+# What crosses the terminal, each with the real-binary PTY test covering it.
+[[pty]]
+what = "q quits and restores the terminal"
+test = "tests/tui.rs::q_quits_and_restores_the_terminal"
+
+[[pty]]
+what = "Ctrl-C quits (raw mode delivers it as a key, not a signal)"
+test = "tests/tui.rs::ctrl_c_quits"
+
+[[pty]]
+what = "Esc quits"
+test = "tests/tui.rs::escape_quits"
+
+[[pty]]
+what = "a resize repaints the whole frame at the new size"
+test = "tests/tui.rs::a_resize_repaints_at_the_new_size"
+
+[[pty]]
+what = "--print is coloured on a terminal and plain in a pipe"
+test = "tests/tui.rs::print_is_coloured_on_a_terminal_and_plain_in_a_pipe"
+
+[[pty]]
+what = "the interactive view falls back to printing when stdout is not a terminal"
+test = "tests/tui.rs::interactive_mode_prints_when_stdout_is_piped"
+
+# Repaint after the terminal lost its screen: not supported. specdiff asks for no focus
+# events and has no redraw key, so nothing tells it the screen was wiped; it repaints on
+# the next resize, key or file change.
+
+# Every key binding and event, with its unit test of the key map or reducer.
+[[key]]
+what = "q, Esc, Ctrl-C quit"
+test = "src/tui/input.rs::q_escape_and_ctrl_c_quit"
+
+[[key]]
+what = "c toggles changed-only"
+test = "src/tui/input.rs::plain_c_toggles_changed_only_rather_than_quitting"
+
+[[key]]
+what = "j k Up Down PageUp PageDown Home g End G"
+test = "src/tui/input.rs::every_binding_maps_to_its_action"
+
+[[key]]
+what = "resize maps to a full repaint"
+test = "src/tui/input.rs::a_resize_forces_a_repaint"
+
+[[key]]
+what = "unbound keys and other events do nothing"
+test = "src/tui/input.rs::unbound_keys_and_other_events_are_ignored"
+
+[[key]]
+what = "the reducer: scroll, clamp, sections, toggle, quit, repaint"
+test = "src/tui/state.rs::scrolling_moves_and_clamps_to_the_last_line"
+
+# Every view, with its TestBackend render test.
+[[view]]
+what = "outline with changes"
+test = "src/tui/render.rs::the_outline_view_shows_stats_files_specs_and_keys"
+
+[[view]]
+what = "no changes"
+test = "src/tui/render.rs::the_empty_view_says_there_are_no_changes"
+
+[[view]]
+what = "changed-only"
+test = "src/tui/render.rs::the_changed_only_view_drops_unchanged_files_and_specs"
+
+[[view]]
+what = "scrolled"
+test = "src/tui/render.rs::a_scrolled_view_starts_at_the_scroll_offset_and_reports_how_far_it_can_go"
