@@ -177,11 +177,26 @@ and excluded: `modified < 0` in `push_stats_header`, because `Stats.modified`
 is never counted (a real gap, recorded in TODO.md), and `==` to `!=` in
 `collect_compact_lines`, whose skip is only a shortcut.
 
+Second CI slice (run 36365534482, 9.7 minutes: 75 tested, 51 caught, 15
+missed, 9 unviable), all in `src/pipeline.rs`: the shared-example registry
+had almost no tests. Thirteen now have them, through an in-memory
+`FileSource`: the default `list_shared_files*` are empty, the registry holds
+exactly the rspec shared examples and Python base classes it should (plus a
+proptest that every shared example defined in a spec file is registered),
+`--framework` limits both the registry and which files are diffed or trigger
+a scan, and shared files outside the change are read through the source. Two
+are equivalent and excluded: the serial/parallel threshold in
+`diff_with_registries`, and `&&` to `||` on `scan_spec_files_for_definitions`,
+which only matters for jest, whose shared helpers never register (a real
+gap, recorded in TODO.md).
+
 Excluded as equivalent, with the argument next to each in `.cargo/mutants.toml`:
 the two `* 1` mutants of the resume index in `truncate_unchanged_runs`
 (anchored by line and column, so they reappear if the line moves), the
-empty-string shortcut in `name_similarity`, the serial/parallel threshold
-in `JjVcs::files_at_revision`, and the two `src/output/mod.rs` mutants above.
+empty-string shortcut in `name_similarity`, the serial/parallel thresholds
+in `JjVcs::files_at_revision` and `diff_with_registries`, the two
+`src/output/mod.rs` mutants above, and the jest-only guard in
+`build_shared_registry`.
 
 ## Adding a new framework
 
