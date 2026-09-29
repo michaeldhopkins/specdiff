@@ -172,6 +172,60 @@ Found while adopting it: a resize left a stale frame until the next key or file
 event, and running without `--print` into a pipe panicked in ratatui (exit 101).
 Both fixed in 0.21.3.
 
+## Differential testing
+
+`tests/differential/` checks specdiff's outline against each framework's own
+view of which tests exist. The framework is the reference: "correct" means what
+it lists. Every test there is `#[ignore]`d because it runs a foreign toolchain:
+
+    cargo test --test differential -- --ignored --nocapture
+
+| Family | Reference (never runs a test) | Compared at |
+|---|---|---|
+| rust (builtin, rstest, proptest) | `cargo test --no-run --all-features` for the harnesses, then `<exe> --list --format terse` | file (walked from the target root through `a.rs`/`a/mod.rs`), module groups, test; rstest `case_N` collapse to one test with a count |
+| go | `go test -json -list '.*' ./...`, `go list` for package directories | package directory and top-level function: `-list` never names subtests |
+| minitest | `minitest_list.rb`: load `test/**/*_test.rb` and `test/**/test_*.rb`, print each runnable class's `runnable_methods` | file, class name split on `::`, test; a spec's `test_0001_` counter stripped |
+
+Not compared yet: pytest (not installed here; `pytest --collect-only -q`), rspec
+(`rspec --dry-run --format json`), jest (`--listTests` names files only; use
+`jest --json` with `--testNamePattern` that matches nothing, or vitest's
+`list`), junit (needs the JUnit console launcher), phpunit/pest
+(`--list-tests`, from a project's own `vendor/bin`), exunit (`mix test
+--dry-run`, Elixir 1.19+, inside a mix project). Each is a `reference` function
+in a new file and one arm in `main.rs`.
+
+- The abstraction (`model.rs`): a multiset of identifiers `file > group > …
+  > test [N cases]`, names put through the framework's `normalization` by a
+  second implementation in `model.rs`, not the engine's, so a disagreement
+  between the two shows up. A parametrised test is one identifier with a count.
+- Validation of the reference, in each family: Rust asserts `--list` contains
+  every `--ignored` test and builds with `--all-features`; doctests are out on
+  purpose (specdiff does not outline them). Go asserts every package answered.
+- `tests/differential/known.toml` lists each accepted disagreement class with
+  its reason. A difference no entry explains fails; so does an entry that
+  explained nothing in a corpus run, so the list cannot rot. Fix a false
+  positive once, in the normalisation or the list, never in the comparison.
+- The report buckets differences by family, side (missing in specdiff / extra
+  in specdiff) and class, and prints each unexplained one.
+- Corpus: `tests/fixtures/differential/<family>/`, a small project per family
+  built to hold one of each shape. Add a shape there before relying on it.
+- Real projects: `SPECDIFF_DIFFERENTIAL_PROJECTS=rust=/path,go=/path` with the
+  `real_projects_agree_with_their_frameworks` test. Only listing commands run;
+  Rust build output goes to `CARGO_TARGET_TMPDIR`.
+- A missing toolchain is a loud skip (`differential: SKIPPED …` on stderr).
+  `SPECDIFF_DIFFERENTIAL_REQUIRE_ALL=1` turns a skip into a failure; CI should
+  set it and install Rust, Go and Ruby (minitest ships with Ruby).
+
+Found on the first run (2026-09-28), fixed with a failing test first:
+`#[case::name(…)]` rstest cases were not counted (an attribute matched only a
+bare identifier); Go's `required_param_type` was read by no code, so
+`TestMain(m *testing.M)` was outlined as a test; minitest grouped only classes
+named `Test*`, so the Rails convention `UserTest` came out flat; and a minitest
+class inside a namespace `module` vanished, because minitest's inert-container
+rule skipped the whole module. Recorded as decisions in TODO.md: `proptest!`
+tests are never outlined (the `property_based` config is dead too), plain
+modules inside a test module are flattened, rstest `#[values]` matrices.
+
 ## Mutation testing
 
 Method: the `rust-mutation-testing` skill. Config: `.cargo/mutants.toml`. CI:
