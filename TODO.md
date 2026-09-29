@@ -87,3 +87,41 @@ Accepted for now in `tests/differential/known.toml`, each worth a decision:
   `#[tokio::test]` (and any `path::test` attribute) is not a test marker,
   because an attribute matches on its first path segment. Add one to the corpus
   and see.
+
+## Differential-testing trial: what is not compared yet
+
+The differential harness (`tests/differential/`, AGENTS.md "Differential testing") compares
+the outline with each framework's own listing. It is a trial of a candidate global rule
+(the `rust-practices` ledger, "Differential testing against a reference implementation",
+decision due 2026-10-15; the owner wants more trial data before adopting it). These
+frameworks have a definition in `frameworks/` but no comparison yet. Each needs its
+toolchain, a reference lister, a fixture project with one of every shape, and its accepted
+differentials in `known.toml`:
+
+- **pytest**: `pytest --collect-only -q`. Not installed here (`uv` could not fetch it offline).
+- **rspec**: `rspec --dry-run --format json`. Gem not installed.
+- **jest** and **vitest**: jest's `--listTests` names only files; use `--json` on a dry run or
+  vitest's `list`. auction-idle has vitest.
+- **junit**: needs maven, gradle or the console launcher's `--list-tests`/discovery.
+- **phpunit** and **pest**: `vendor/bin/phpunit --list-tests`, `vendor/bin/pest --list-tests`.
+  clce.org and michaeldhopkins.com have `vendor/bin`.
+- **exunit**: `mix test --dry-run` (needs a mix project).
+
+Also still to run, on AC power (they build real projects):
+
+- Real Ruby: hnfilter (minitest), which needs a Rails-booting loader.
+- Rust: vcs-runner and jjpr through `SPECDIFF_DIFFERENTIAL_PROJECTS`.
+- Add `#[tokio::test]` to the Rust fixture corpus; reading the code suggests the outline
+  misses it.
+- Try expressing known differentials as predicates over source ("declared inside
+  `proptest!`") instead of name globs, which turned out to be per-project.
+- A cheap companion check: every field the framework TOML deserialises is read by some code.
+  Two of the four bugs the trial found were fields nothing read.
+
+## Release pending: 0.21.5
+
+Unpushed on top of `main`: the properties manifest and lint-suppression ratchets, the
+differential harness and CI job, and three user-facing fixes (rstest `#[case::name]`, Go
+`TestMain` outlined as a test, minitest `*Test` and namespaced classes). Before pushing: run
+the adversarial review (not yet run), bump the version to 0.21.5 with `Cargo.lock` in sync,
+then push and watch the release, and the new `differential` CI job's first run.
