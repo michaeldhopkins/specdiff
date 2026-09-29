@@ -200,7 +200,11 @@ in a new file and one arm in `main.rs`.
   between the two shows up. A parametrised test is one identifier with a count.
 - Validation of the reference, in each family: Rust asserts `--list` contains
   every `--ignored` test and builds with `--all-features`; doctests are out on
-  purpose (specdiff does not outline them). Go asserts every package answered.
+  purpose (specdiff does not outline them). Go lists every module (a nested
+  `go.mod` is outside `./...`, which first hid 74 of hey-cli's tests) and
+  asserts every package answered. `go test -list` is not quite non-executing:
+  it runs `TestMain`, so a package whose `TestMain` fails makes the project a
+  skip.
 - `tests/differential/known.toml` lists each accepted disagreement class with
   its reason. A difference no entry explains fails; so does an entry that
   explained nothing in a corpus run, so the list cannot rot. Fix a false
