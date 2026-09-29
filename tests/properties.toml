@@ -29,6 +29,7 @@ owed = [
 "src/output/truncate.rs" = []
 "src/parse/engine.rs" = [
   "groups_and_specs_report_their_one_based_source_line",
+  "every_rstest_case_counts_whether_or_not_it_is_described",
 ]
 "src/parse/mod.rs" = []
 "src/parse/registry.rs" = []

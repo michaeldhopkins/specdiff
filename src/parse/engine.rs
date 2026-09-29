@@ -801,10 +801,12 @@ fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argume
             let ident = child.child_by_field_name("path")
                 .or_else(|| {
                     let mut c = child.walk();
-                    child.children(&mut c).find(|n| n.kind() == "identifier")
+                    child.children(&mut c).find(|n| matches!(n.kind(), "identifier" | "scoped_identifier"))
                 });
             let Some(ident) = ident else { continue };
-            if node_text(ident, source).as_deref() != Some(attr_name) {
+            let path = node_text(ident, source).unwrap_or_default();
+            let first_segment = path.split("::").next().unwrap_or_default();
+            if first_segment != attr_name {
                 continue;
             }
 
@@ -2733,6 +2735,33 @@ mod mutation_tests {
             let expected: Vec<usize> = (0..specs).map(|i| blank + 2 + 2 * i).collect();
             proptest::prop_assert_eq!(lines, expected);
         }
+
+        #[test]
+        fn every_rstest_case_counts_whether_or_not_it_is_described(
+            described in proptest::collection::vec(proptest::option::of("[a-z][a-z0-9_]{0,8}"), 1..6),
+        ) {
+            let mut source = String::from("#[cfg(test)]\nmod tests {\n    #[rstest]\n");
+            for (i, name) in described.iter().enumerate() {
+                match name {
+                    Some(name) => source.push_str(&format!("    #[case::{name}({i})]\n")),
+                    None => source.push_str(&format!("    #[case({i})]\n")),
+                }
+            }
+            source.push_str("    fn cases(#[case] n: i32) {}\n}\n");
+            let rust = all_frameworks().iter().find(|f| f.name == "rust_builtin").expect("rust");
+            let tree = parse_file(&source, "src/lib.rs", rust).expect("parsed");
+            let spec = &tree.root[0].children[0];
+            proptest::prop_assert_eq!(spec.parameterized.as_ref().map(|p| p.case_count), Some(described.len()));
+        }
+    }
+
+    #[test]
+    fn a_described_rstest_case_counts_as_a_case() {
+        let source = "#[cfg(test)]\nmod tests {\n    #[rstest]\n    #[case::zero(0)]\n    #[case::one(1)]\n    #[case(2)]\n    fn cases(#[case] n: i32) {}\n}\n";
+        let rust = all_frameworks().iter().find(|f| f.name == "rust_builtin").expect("rust");
+        let tree = parse_file(source, "src/lib.rs", rust).expect("parsed");
+        let spec = &tree.root[0].children[0];
+        assert_eq!(spec.parameterized.as_ref().map(|p| p.case_count), Some(3));
     }
 
     fn junit(source: &str) -> Vec<SpecNode> {
