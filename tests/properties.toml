@@ -1,0 +1,49 @@
+# Every source file, classified. `tests/properties.rs` enforces it; the rule is
+# "Property Tests for Pure Logic" in the owner's quality ratchets.
+#
+# A `pure` file's behaviour is a function of its inputs and names the property tests
+# (functions inside a `proptest!` block in that file) that cover it. An `effectful`
+# file says in a line why it is not pure. A pure file with no properties yet goes in
+# `owed`, which may only shrink: an entry that gains a property leaves in the same change.
+
+owed = [
+  "src/cli.rs",
+  "src/diff/mod.rs",
+  "src/diff/types.rs",
+  "src/output/mod.rs",
+  "src/output/truncate.rs",
+  "src/parse/mod.rs",
+  "src/parse/registry.rs",
+  "src/parse/shared.rs",
+  "src/tui/input.rs",
+  "src/tui/render.rs",
+  "src/tui/state.rs",
+  "src/tui/watch.rs",
+]
+
+[pure]
+"src/cli.rs" = []
+"src/diff/mod.rs" = []
+"src/diff/types.rs" = []
+"src/output/mod.rs" = []
+"src/output/truncate.rs" = []
+"src/parse/engine.rs" = [
+  "groups_and_specs_report_their_one_based_source_line",
+]
+"src/parse/mod.rs" = []
+"src/parse/registry.rs" = []
+"src/parse/shared.rs" = []
+"src/tui/input.rs" = []
+"src/tui/render.rs" = []
+"src/tui/state.rs" = []
+"src/tui/watch.rs" = []
+
+[effectful]
+"src/lib.rs" = "module declarations only"
+"src/main.rs" = "the CLI: arguments, terminal, exit status"
+"src/pipeline.rs" = "reads spec files from directories and through a VCS"
+"src/tui/mod.rs" = "terminal I/O, filesystem watcher, run loop"
+"src/vcs/git.rs" = "reads a git repository through git2"
+"src/vcs/jj.rs" = "runs the jj CLI"
+"src/vcs/mod.rs" = "the VCS trait and repository detection"
+"src/vcs/shared.rs" = "reads working-tree files"
