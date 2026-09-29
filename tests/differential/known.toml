@@ -146,3 +146,10 @@ family = "rust"
 side = "missing"
 match = "src/pipeline.rs > * > every shared example defined in a spec file is registered"
 reason = "as above"
+
+[[known]]
+class = "proptest! tests not outlined"
+family = "rust"
+side = "missing"
+match = "src/parse/attributes.rs > * > only the exact name or one label under it names an attribute"
+reason = "as above"
