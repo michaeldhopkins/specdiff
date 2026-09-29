@@ -2753,6 +2753,16 @@ mod mutation_tests {
     }
 
     #[test]
+    fn a_namespace_module_keeps_its_test_classes_and_drops_its_own_methods() {
+        let source = "module Persistable\n  def test_has_id\n  end\nend\n\nmodule Admin\n  def test_not_run_here\n  end\n\n  module Reports\n    class ExportTest < Minitest::Test\n      def test_csv\n      end\n    end\n  end\nend\n";
+        let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
+        let root = parse_file(source, "test/admin_test.rb", minitest).expect("parsed").root;
+        let outline: Vec<(String, SpecKind, usize)> =
+            root.iter().map(|n| (n.name.clone(), n.kind.clone(), n.children.len())).collect();
+        assert_eq!(outline, [("ExportTest".to_string(), SpecKind::Group, 1)]);
+    }
+
+    #[test]
     fn a_rails_style_minitest_class_groups_its_tests() {
         let source = "class UserTest < Minitest::Test\n  def test_valid\n  end\nend\n\nmodule Billing\n  class InvoiceTest < Minitest::Test\n    def test_totals\n    end\n  end\nend\n";
         let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
