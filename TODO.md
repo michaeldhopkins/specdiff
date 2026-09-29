@@ -98,18 +98,17 @@ frameworks have a definition in `frameworks/` but no comparison yet. Each needs 
 toolchain, a reference lister, a fixture project with one of every shape, and its accepted
 differentials in `known.toml`:
 
-- **pytest**: `pytest --collect-only -q`. Not installed here (`uv` could not fetch it offline).
-- **rspec**: `rspec --dry-run --format json`. Gem not installed.
+- **pytest**: `pytest --collect-only -q`.
+- **rspec**: `rspec --dry-run --format json`.
 - **jest** and **vitest**: jest's `--listTests` names only files; use `--json` on a dry run or
-  vitest's `list`. auction-idle has vitest.
+  vitest's `list`.
 - **junit**: needs maven, gradle or the console launcher's `--list-tests`/discovery.
 - **phpunit** and **pest**: `vendor/bin/phpunit --list-tests`, `vendor/bin/pest --list-tests`.
-  clce.org and michaeldhopkins.com have `vendor/bin`.
 - **exunit**: `mix test --dry-run` (needs a mix project).
 
-Also still to run, on AC power (they build real projects):
+Also still to run (they build real projects):
 
-- Real Ruby: hnfilter (minitest), which needs a Rails-booting loader.
+- A real Rails project's minitest suite, which needs a Rails-booting loader.
 - Rust: vcs-runner and jjpr through `SPECDIFF_DIFFERENTIAL_PROJECTS`.
 - Add `#[tokio::test]` to the Rust fixture corpus; reading the code suggests the outline
   misses it.
@@ -134,6 +133,30 @@ Also still to run, on AC power (they build real projects):
 
 Unpushed on top of `main`: the properties manifest and lint-suppression ratchets, the
 differential harness and CI job, and three user-facing fixes (rstest `#[case::name]`, Go
-`TestMain` outlined as a test, minitest `*Test` and namespaced classes). Before pushing: run
-the adversarial review (not yet run), bump the version to 0.21.5 with `Cargo.lock` in sync,
-then push and watch the release, and the new `differential` CI job's first run.
+`TestMain` outlined as a test, minitest `*Test` and namespaced classes). The adversarial
+review has run; it found that reading `required_param_type` dropped every Go test in a file
+importing `testing` under another name (fixed before release). Still to do: bump the version
+to 0.21.5 with `Cargo.lock` in sync, then push and watch the release, and the new
+`differential` CI job's first run.
+
+## Left from the 0.21.5 review
+
+- A minitest helper class whose name ends in `Test` but is not a `Minitest::Test`
+  (`class FakeClockTest; def now; end; end` in a test file) is outlined as an empty group.
+  The `^Test` marker had the same reach before. The differential harness cannot see it,
+  because a group with no tests lists nothing. A fix would require a superclass (or some
+  tests) for a class to count; reopened classes without one would then come out flat.
+- Two classes of the same name in different namespaces in one file (`UserTest` and
+  `Admin::UserTest`) are sibling groups with the same name, so the diff can pair either.
+  minitest names them by their full constant path; the outline shows the class only.
+- Rails' `test "does a thing" do … end` (ActiveSupport's declarative `test`) is not a spec
+  in `minitest.toml`, so a Rails suite written that way outlines its classes and `def
+  test_` methods only. Add a `[[framework.spec]]` for `test` with a string argument, and a
+  case to the minitest corpus (it needs ActiveSupport loaded, or a stub `test` class method).
+- Go `func Testlower(t *testing.T)` is outlined as a test although Go says a lowercase letter
+  after `Test` makes it not one. Not fixed: `go test` runs vet's `tests` check and refuses
+  to build the package, so no working suite contains one.
+- `known.toml` rot is checked per class. Entries that only match specdiff's own source (a
+  real-project run) share a corpus class, so a stale one is never reported.
+- `tests/lint_suppressions.rs` scans `src`, `tests`, `fuzz/fuzz_targets` and `examples`, not
+  `build.rs` (which has no suppressions today).

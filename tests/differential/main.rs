@@ -5,7 +5,7 @@
 //!
 //! A framework whose toolchain is absent is skipped with a line on stderr, or fails when
 //! `SPECDIFF_DIFFERENTIAL_REQUIRE_ALL=1` (CI sets it). Any difference that no entry in
-//! `known.toml` explains fails, and so does an entry that explained nothing in a run over the
+//! `known.toml` explains fails, and so does a class whose entries explained nothing in a run over the
 //! checked-in corpus (so the list cannot rot).
 
 mod go;

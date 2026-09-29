@@ -186,7 +186,7 @@ it lists. Every test there is `#[ignore]`d because it runs a foreign toolchain:
 | go | `go test -json -list '.*' ./...`, `go list` for package directories | package directory and top-level function: `-list` never names subtests |
 | minitest | `minitest_list.rb`: load `test/**/*_test.rb` and `test/**/test_*.rb`, print each runnable class's `runnable_methods` | file, class name split on `::`, test; a spec's `test_0001_` counter stripped |
 
-Not compared yet: pytest (not installed here; `pytest --collect-only -q`), rspec
+Not compared yet: pytest (`pytest --collect-only -q`), rspec
 (`rspec --dry-run --format json`), jest (`--listTests` names files only; use
 `jest --json` with `--testNamePattern` that matches nothing, or vitest's
 `list`), junit (needs the JUnit console launcher), phpunit/pest
@@ -201,24 +201,28 @@ in a new file and one arm in `main.rs`.
 - Validation of the reference, in each family: Rust asserts `--list` contains
   every `--ignored` test and builds with `--all-features`; doctests are out on
   purpose (specdiff does not outline them). Go lists every module (a nested
-  `go.mod` is outside `./...`, which first hid 74 of hey-cli's tests) and
+  `go.mod` is outside `./...`, which first hid a real project's tests) and
   asserts every package answered. `go test -list` is not quite non-executing:
   it runs `TestMain`, so a package whose `TestMain` fails makes the project a
   skip.
 - `tests/differential/known.toml` lists each accepted disagreement class with
-  its reason. A difference no entry explains fails; so does an entry that
-  explained nothing in a corpus run, so the list cannot rot. Fix a false
+  its reason. A difference no entry explains fails; so does a class whose
+  entries explained nothing in a corpus run (checked per class, not per entry,
+  so an entry for a real project's file can share a corpus class). Fix a false
   positive once, in the normalisation or the list, never in the comparison.
 - The report buckets differences by family, side (missing in specdiff / extra
   in specdiff) and class, and prints each unexplained one.
 - Corpus: `tests/fixtures/differential/<family>/`, a small project per family
   built to hold one of each shape. Add a shape there before relying on it.
 - Real projects: `SPECDIFF_DIFFERENTIAL_PROJECTS=rust=/path,go=/path` with the
-  `real_projects_agree_with_their_frameworks` test. Only listing commands run;
+  `real_projects_agree_with_their_frameworks` test. No test runs, but listing
+  is not inert: cargo runs build scripts and proc macros, `go test -list` runs
+  `TestMain`, and `minitest_list.rb` requires every test file (so its
+  `test_helper` too). Only point it at projects you trust;
   Rust build output goes to `CARGO_TARGET_TMPDIR`.
 - A missing toolchain is a loud skip (`differential: SKIPPED …` on stderr).
-  `SPECDIFF_DIFFERENTIAL_REQUIRE_ALL=1` turns a skip into a failure; CI should
-  set it and install Rust, Go and Ruby (minitest ships with Ruby).
+  `SPECDIFF_DIFFERENTIAL_REQUIRE_ALL=1` turns a skip into a failure; CI (the
+  `differential` job) sets it, with Go and minitest pinned.
 
 Found on the first run (2026-09-28), fixed with a failing test first:
 `#[case::name(…)]` rstest cases were not counted (an attribute matched only a

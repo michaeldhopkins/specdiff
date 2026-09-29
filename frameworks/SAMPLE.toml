@@ -91,7 +91,9 @@ allow_anonymous = true
 # pattern = "^Test"            # for name_pattern
 # applies_to = "function"      # function | method | class | module
 # creates = "spec"             # spec | group
-# required_param_type = "*testing.T"
+# required_param_type = "*testing.T"  # some parameter has this type; the package
+#                                      # qualifier follows the file's import of it
+#                                      # (`tt "testing"` accepts *tt.T, a dot import *T)
 
 
 # ---------------------------------------------------------------
