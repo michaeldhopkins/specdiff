@@ -134,8 +134,10 @@ Also still to run (they build real projects):
 Unpushed on top of `main`: the properties manifest and lint-suppression ratchets, the
 differential harness and CI job, and three user-facing fixes (rstest `#[case::name]`, Go
 `TestMain` outlined as a test, minitest `*Test` and namespaced classes). The adversarial
-review has run; it found that reading `required_param_type` dropped every Go test in a file
-importing `testing` under another name (fixed before release). Still to do: bump the version
+review has run. It found two regressions in the unreleased fixes, both fixed before release:
+reading `required_param_type` dropped every Go test in a file importing `testing` under
+another name, and matching an attribute on its first path segment (for `#[case::name]`)
+made `#[rstest::fixture]` functions tests. Still to do: bump the version
 to 0.21.5 with `Cargo.lock` in sync, then push and watch the release, and the new
 `differential` CI job's first run.
 
