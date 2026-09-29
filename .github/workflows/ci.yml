@@ -5,6 +5,9 @@ on:
     branches: ["**"]
   pull_request:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -30,7 +33,7 @@ jobs:
         run: cargo test --locked
 
       - name: cargo clippy
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - uses: taiki-e/install-action@cargo-deny
       - name: cargo deny
@@ -50,14 +53,14 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: "1.26"
 
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
 
-      - name: gem install minitest
-        run: gem install minitest
+      - name: Install minitest
+        run: gem install minitest -v 6.0.6
 
       - name: cargo test --test differential
         run: cargo test --locked --test differential -- --ignored --nocapture
