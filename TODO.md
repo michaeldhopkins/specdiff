@@ -116,7 +116,19 @@ Also still to run, on AC power (they build real projects):
 - Try expressing known differentials as predicates over source ("declared inside
   `proptest!`") instead of name globs, which turned out to be per-project.
 - A cheap companion check: every field the framework TOML deserialises is read by some code.
-  Two of the four bugs the trial found were fields nothing read.
+  Two of the four bugs the trial found were fields nothing read. Both are `pub` fields in
+  `src/parse/registry.rs`, which is why rustc's `dead_code` could not flag them: making the
+  config types `pub(crate)` is the trial for this (the `rust-practices` ledger).
+- **A differential fuzz**, not just a fixed corpus: generate test files (from a small grammar
+  of test-file shapes, or by recombining pieces of real ones), run each through specdiff and
+  the framework's own lister, and fail on any difference outside `known.toml`. Guide
+  generation on the tuple of outcomes across the two sides, as NEZHA does, not on coverage of
+  one. Its feasibility depends on the reference lister's speed per input, which the trial
+  should measure:
+  - Realistic for minitest (loading Ruby only) and pytest (`--collect-only` imports only):
+    tens of inputs a second.
+  - Marginal for Go: `-list` builds the package.
+  - Impractical for Rust: every input needs a compile before `cargo test --list`.
 
 ## Release pending: 0.21.5
 
