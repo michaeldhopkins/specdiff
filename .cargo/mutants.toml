@@ -4,7 +4,16 @@
 # The `jj` backend's tests are `#[ignore]`d because they need the jj CLI. Without them every
 # mutant in src/vcs/jj.rs would come back MISSED, so mutation runs include them and need jj
 # on PATH (CI installs it).
-additional_cargo_test_args = ["--", "--include-ignored"]
+#
+# The differential tests are ignored too, but they run foreign toolchains (cargo on a
+# corpus crate from crates.io, Go, Ruby) that the mutants job neither installs nor pins, so
+# a runner image change would fail the baseline. They are skipped by name.
+additional_cargo_test_args = [
+    "--",
+    "--include-ignored",
+    "--skip", "outline_agrees_with_",
+    "--skip", "real_projects_agree_with_",
+]
 
 exclude_re = [
     # Equivalent. After a truncation `i` resumes at `start + head + 1 + tail`, the first
