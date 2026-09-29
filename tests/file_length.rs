@@ -17,7 +17,7 @@ const LIMIT: usize = 400;
 fn pinned() -> HashMap<&'static str, usize> {
     HashMap::from([
         ("src/diff/mod.rs", 405),
-        ("src/parse/engine.rs", 1351),
+        ("src/parse/engine.rs", 1350),
         ("src/pipeline.rs", 403),
     ])
 }

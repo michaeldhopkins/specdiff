@@ -32,6 +32,9 @@ owed = [
   "every_rstest_case_counts_whether_or_not_it_is_described",
 ]
 "src/parse/mod.rs" = []
+"src/parse/params.rs" = [
+  "a_go_test_is_exactly_a_test_function_taking_a_testing_t",
+]
 "src/parse/registry.rs" = []
 "src/parse/shared.rs" = []
 "src/tui/input.rs" = []

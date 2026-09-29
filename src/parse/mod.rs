@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod params;
 pub mod registry;
 pub mod shared;
 

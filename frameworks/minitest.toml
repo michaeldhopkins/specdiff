@@ -30,6 +30,12 @@ creates = "group"
 
 [[framework.marker]]
 marker_type = "name_pattern"
+pattern = "Test$"
+applies_to = "class"
+creates = "group"
+
+[[framework.marker]]
+marker_type = "name_pattern"
 pattern = "^test_"
 applies_to = "method"
 creates = "spec"

@@ -62,9 +62,8 @@ pub fn parse_children_with_shared(
 
     for child in node.children(&mut cursor) {
         if is_inert_container(child, framework) {
-            continue;
-        }
-        if let Some(nodes) = try_match_inclusion(child, source, framework, shared) {
+            results.extend(parse_children_with_shared(child, source, framework, shared).into_iter().filter(|n| n.kind == SpecKind::Group));
+        } else if let Some(nodes) = try_match_inclusion(child, source, framework, shared) {
             results.extend(nodes);
         } else if let Some(spec_node) = try_match_node(child, source, framework, shared) {
             results.push(spec_node);
@@ -804,9 +803,7 @@ fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argume
                     child.children(&mut c).find(|n| matches!(n.kind(), "identifier" | "scoped_identifier"))
                 });
             let Some(ident) = ident else { continue };
-            let path = node_text(ident, source).unwrap_or_default();
-            let first_segment = path.split("::").next().unwrap_or_default();
-            if first_segment != attr_name {
+            if node_text(ident, source).as_deref().and_then(|p| p.split("::").next()) != Some(attr_name) {
                 continue;
             }
 
@@ -853,7 +850,7 @@ fn try_match_name_pattern_marker(
     let name = node_text(name_node, source)?;
 
     let pattern = marker.pattern.as_deref()?;
-    if !matches_pattern(&name, pattern) {
+    if !matches_pattern(&name, pattern) || !super::params::takes_required_param(node, source, marker) {
         return None;
     }
 
@@ -2753,6 +2750,24 @@ mod mutation_tests {
             let spec = &tree.root[0].children[0];
             proptest::prop_assert_eq!(spec.parameterized.as_ref().map(|p| p.case_count), Some(described.len()));
         }
+    }
+
+    #[test]
+    fn a_rails_style_minitest_class_groups_its_tests() {
+        let source = "class UserTest < Minitest::Test\n  def test_valid\n  end\nend\n\nmodule Billing\n  class InvoiceTest < Minitest::Test\n    def test_totals\n    end\n  end\nend\n";
+        let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
+        let root = parse_file(source, "test/user_test.rb", minitest).expect("parsed").root;
+        let outline: Vec<(String, Vec<String>)> = root
+            .iter()
+            .map(|n| (n.name.clone(), n.children.iter().map(|c| c.name.clone()).collect()))
+            .collect();
+        assert_eq!(
+            outline,
+            [
+                ("UserTest".to_string(), vec!["valid".to_string()]),
+                ("InvoiceTest".to_string(), vec!["totals".to_string()]),
+            ]
+        );
     }
 
     #[test]
