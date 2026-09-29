@@ -111,3 +111,38 @@ family = "minitest"
 side = "extra"
 match = "* > InvoiceTest > *"
 reason = "the other half: the class without its namespace"
+
+[[known]]
+class = "Rust files in no target's module tree"
+family = "rust"
+side = "extra"
+match = "tests/fixtures/*"
+reason = "specdiff selects .rs files by glob (src/**, tests/**); cargo compiles only files reachable by `mod` from a target root, so fixture trees and stray files are outlined but never run"
+
+[[known]]
+class = "proptest! tests not outlined"
+family = "rust"
+side = "missing"
+match = "*src/parse/* > every rstest case counts whether or not it is described"
+reason = "the same class as above, as it appears in specdiff's own source (a real-project run)"
+
+[[known]]
+class = "proptest! tests not outlined"
+family = "rust"
+side = "missing"
+match = "*src/parse/* > groups and specs report their one based source line"
+reason = "as above"
+
+[[known]]
+class = "proptest! tests not outlined"
+family = "rust"
+side = "missing"
+match = "*src/parse/params.rs > * > a go test is exactly a test function taking a testing t"
+reason = "as above"
+
+[[known]]
+class = "proptest! tests not outlined"
+family = "rust"
+side = "missing"
+match = "src/pipeline.rs > * > every shared example defined in a spec file is registered"
+reason = "as above"

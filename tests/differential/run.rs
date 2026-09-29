@@ -37,3 +37,14 @@ pub fn scratch(name: &str) -> PathBuf {
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
     dir
 }
+
+/// Like `output`, but a failing command is a skip rather than a broken reference: for a
+/// listing that can fail for reasons outside the project's tests (Go's `-list` runs `TestMain`).
+pub fn output_or_skip(cmd: &mut Command, why: &str) -> Result<String, Skip> {
+    let shown = format!("{cmd:?}");
+    match cmd.output() {
+        Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        Ok(out) => Err(Skip(format!("{shown} failed ({}): {why}", out.status))),
+        Err(e) => Err(Skip(format!("{shown}: {e}"))),
+    }
+}

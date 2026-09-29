@@ -6,18 +6,30 @@
 //! compares at the depth the reference can see: the package directory and the top-level
 //! function, with specdiff's side projected to its root nodes and no case counts. Validated:
 //! every package `go list` reports must answer the listing. Build tags are not passed, so the
-//! reference is the default build.
+//! reference is the default build. Not quite non-executing: `-list` runs `TestMain`, so a
+//! package whose `TestMain` fails (a smoke suite probing a server) makes the project a skip.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
 use crate::model::{TestId, normalize};
-use crate::outline::framework;
-use crate::run::{Skip, output};
+use crate::outline::{framework, project_files};
+use crate::run::{Skip, output, output_or_skip};
 
-pub fn reference(project: &Path, _name: &str) -> Result<Vec<TestId>, Skip> {
-    let packages = output(Command::new("go").args(["list", "-f", "{{.ImportPath}} {{.Dir}}", "./..."]).current_dir(project))?;
+/// Every Go module in the project: `./...` stops at a nested `go.mod`, so each is listed on
+/// its own, or a nested module's tests go missing from the reference.
+pub fn reference(project: &Path, name: &str) -> Result<Vec<TestId>, Skip> {
+    let mut ids = Vec::new();
+    for module in project_files(project).iter().filter(|f| f.rsplit('/').next() == Some("go.mod")) {
+        let dir = project.join(Path::new(module).parent().unwrap_or(Path::new("")));
+        ids.extend(module_reference(project, &dir, name)?);
+    }
+    Ok(ids)
+}
+
+fn module_reference(project: &Path, module: &Path, _name: &str) -> Result<Vec<TestId>, Skip> {
+    let packages = output(Command::new("go").args(["list", "-f", "{{.ImportPath}} {{.Dir}}", "./..."]).current_dir(module))?;
     let dirs: BTreeMap<String, String> = packages
         .lines()
         .filter_map(|l| l.split_once(' '))
@@ -26,7 +38,10 @@ pub fn reference(project: &Path, _name: &str) -> Result<Vec<TestId>, Skip> {
             (import.to_string(), rel.to_string_lossy().replace('\\', "/"))
         })
         .collect();
-    let json = output(Command::new("go").args(["test", "-json", "-list", ".*", "./..."]).current_dir(project))?;
+    let json = output_or_skip(
+        Command::new("go").args(["test", "-json", "-list", ".*", "./..."]).current_dir(module),
+        "go test -list runs each package's TestMain, which can fail without running a test",
+    )?;
     let norm = framework("go_testing").normalization.as_ref();
     let mut answered = std::collections::BTreeSet::new();
     let mut ids = Vec::new();
