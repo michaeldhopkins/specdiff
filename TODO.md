@@ -58,3 +58,32 @@ equivalent because of it, and is excluded in `.cargo/mutants.toml`.
 
 **Decision needed:** implement jest helper detection, or remove the dead
 config. If helpers start registering, delete that exclusion.
+
+## proptest! tests are never outlined
+
+`frameworks/rust_proptest.toml` declares `[[framework.property_based]]` with
+`macro_name = "proptest"`, but no code reads `property_based`, and the pipeline
+only ever uses the first framework `frameworks_for_file` returns, which for a
+`.rs` file is `rust_builtin` (`rust_proptest` and `rust_rstest` declare no files,
+so they are never selected). So a `#[test] fn` inside `proptest! { … }` is
+missing from every outline. Found by the differential test (2026-09-28): `cargo
+test -- --list` lists `addition_commutes`, specdiff does not. Recorded as the
+`proptest! tests not outlined` class in `tests/differential/known.toml`.
+
+**Decision needed:** parse `proptest!` token trees for `fn` items (tree-sitter
+leaves a macro body as a `token_tree`, so it is a handler, not TOML), or drop
+the dead config. When it is outlined, delete the known class; the harness fails
+on a class that explains nothing, so it will say so.
+
+## Other disagreements with `cargo test -- --list`
+
+Accepted for now in `tests/differential/known.toml`, each worth a decision:
+
+- A plain `mod` inside a `#[cfg(test)] mod` is flattened: its tests appear one
+  group up. Only `#[cfg(test)]` creates a group.
+- rstest `#[values]` matrices are one spec with no case count; rstest generates
+  one test per combination.
+- Not yet in the corpus, found by reading while fixing `#[case::name]`:
+  `#[tokio::test]` (and any `path::test` attribute) is not a test marker,
+  because an attribute matches on its first path segment. Add one to the corpus
+  and see.
