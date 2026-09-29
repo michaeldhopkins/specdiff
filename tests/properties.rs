@@ -143,6 +143,38 @@ fn check(root: &Path, roots: &[&str], manifest: &str) -> Vec<String> {
     failures
 }
 
+/// Entries in `owed` when this went in. The list may only shrink; without a pin a new pure
+/// file could be added to it as easily as given a property.
+const OWED: usize = 12;
+
+fn owed_verdict(count: usize, pin: usize) -> Option<String> {
+    if count > pin {
+        Some(format!("`owed` has {count} files, up from {pin}. Give the new file a property instead."))
+    } else if count < pin {
+        Some(format!("`owed` is down to {count} from {pin}. Lower OWED to {count}."))
+    } else {
+        None
+    }
+}
+
+#[test]
+fn owed_only_shrinks() {
+    let root = workspace_root();
+    let manifest: toml::Table = std::fs::read_to_string(root.join("tests/properties.toml"))
+        .unwrap_or_else(|e| panic!("reading tests/properties.toml: {e}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("tests/properties.toml does not parse: {e}"));
+    let verdict = owed_verdict(string_list(manifest.get("owed")).len(), OWED);
+    assert!(verdict.is_none(), "{}", verdict.unwrap_or_default());
+}
+
+#[test]
+fn the_owed_count_ratchets() {
+    assert!(owed_verdict(2, 2).is_none());
+    assert!(owed_verdict(3, 2).is_some_and(|m| m.contains("up from 2")));
+    assert!(owed_verdict(1, 2).is_some_and(|m| m.contains("Lower OWED to 1")));
+}
+
 #[test]
 fn every_source_file_is_classified_and_pure_ones_have_properties() {
     let root = workspace_root();
