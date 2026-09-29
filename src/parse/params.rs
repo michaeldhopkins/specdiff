@@ -100,6 +100,20 @@ mod tests {
     }
 
     #[test]
+    fn a_required_type_without_a_pointer_follows_the_import_too() {
+        let marker: crate::parse::registry::MarkerDef =
+            toml::from_str("marker_type = \"name_pattern\"\nrequired_param_type = \"testing.T\"\n").expect("marker");
+        let source = "package user\n\nimport tt \"testing\"\n\nfunc TestByValue(t tt.T) {}\n";
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&tree_sitter_go::LANGUAGE.into()).expect("go grammar");
+        let tree = parser.parse(source, None).expect("parsed");
+        let root = tree.root_node();
+        let mut cursor = root.walk();
+        let function = root.children(&mut cursor).find(|n| n.kind() == "function_declaration").expect("function");
+        assert!(super::takes_required_param(function, source, &marker));
+    }
+
+    #[test]
     fn a_testing_package_imported_only_for_side_effects_marks_nothing() {
         let blank = "package user\n\nimport _ \"testing\"\n\nfunc TestThing(t *testing.T) {}\n";
         assert!(go(blank).is_empty());
