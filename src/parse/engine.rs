@@ -781,7 +781,7 @@ fn has_attribute(node: Node, source: &str, attr_name: &str, attr_argument: Optio
     let mut sibling = node.prev_sibling();
     while let Some(sib) = sibling {
         if sib.kind() == "attribute_item" {
-            if attribute_matches(sib, source, attr_name, attr_argument) {
+            if attribute_matches(sib, source, attr_name, attr_argument, false) {
                 return true;
             }
         } else if sib.kind() != "line_comment" && sib.kind() != "block_comment" {
@@ -793,7 +793,7 @@ fn has_attribute(node: Node, source: &str, attr_name: &str, attr_argument: Optio
     false
 }
 
-fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argument: Option<&str>) -> bool {
+fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argument: Option<&str>, describable: bool) -> bool {
     let mut cursor = attr_item.walk();
     for child in attr_item.children(&mut cursor) {
         if child.kind() == "attribute" {
@@ -803,7 +803,7 @@ fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argume
                     child.children(&mut c).find(|n| matches!(n.kind(), "identifier" | "scoped_identifier"))
                 });
             let Some(ident) = ident else { continue };
-            if node_text(ident, source).as_deref().and_then(|p| p.split("::").next()) != Some(attr_name) {
+            if !node_text(ident, source).is_some_and(|p| super::attributes::path_names(&p, attr_name, describable)) {
                 continue;
             }
 
@@ -1074,7 +1074,7 @@ fn count_rust_case_attributes(node: Node, source: &str, attribute_name: &str) ->
     let mut sibling = node.prev_sibling();
     while let Some(sib) = sibling {
         if sib.kind() == "attribute_item" {
-            if attribute_matches(sib, source, attribute_name, None) {
+            if attribute_matches(sib, source, attribute_name, None, true) {
                 count += 1;
             }
         } else if sib.kind() != "line_comment" && sib.kind() != "block_comment" {
@@ -2750,6 +2750,16 @@ mod mutation_tests {
             let spec = &tree.root[0].children[0];
             proptest::prop_assert_eq!(spec.parameterized.as_ref().map(|p| p.case_count), Some(described.len()));
         }
+    }
+
+    #[test]
+    fn an_attribute_under_a_marker_crate_is_not_the_marker() {
+        let source = "use rstest::rstest;\n\n#[rstest::fixture]\nfn database() -> u32 { 1 }\n\n#[test::custom]\nfn custom() {}\n\n#[rstest]\n#[case::one(1)]\nfn uses(#[case] n: u32) {}\n";
+        let rust = all_frameworks().iter().find(|f| f.name == "rust_builtin").expect("rust");
+        let root = parse_file(source, "tests/fixtures.rs", rust).expect("parsed").root;
+        let names: Vec<(String, Option<usize>)> =
+            root.iter().map(|n| (n.name.clone(), n.parameterized.as_ref().map(|p| p.case_count))).collect();
+        assert_eq!(names, [("uses".to_string(), Some(1))]);
     }
 
     #[test]

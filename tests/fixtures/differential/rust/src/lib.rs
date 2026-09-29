@@ -38,6 +38,16 @@ mod tests {
     #[test]
     fn only_without_the_extra_feature() {}
 
+    #[rstest::fixture]
+    fn base() -> i32 {
+        10
+    }
+
+    #[rstest]
+    fn uses_a_fixture(base: i32) {
+        assert_eq!(add(base, 0), 10);
+    }
+
     #[rstest]
     #[case(1, 1, 2)]
     #[case(2, 3, 5)]

@@ -27,6 +27,9 @@ owed = [
 "src/diff/types.rs" = []
 "src/output/mod.rs" = []
 "src/output/truncate.rs" = []
+"src/parse/attributes.rs" = [
+  "only_the_exact_name_or_one_label_under_it_names_an_attribute",
+]
 "src/parse/engine.rs" = [
   "groups_and_specs_report_their_one_based_source_line",
   "every_rstest_case_counts_whether_or_not_it_is_described",
