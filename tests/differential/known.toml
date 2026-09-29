@@ -1,0 +1,57 @@
+# Accepted disagreements between specdiff's outline and a framework's own listing.
+# tests/differential/main.rs fails on any difference no entry here explains, and on an
+# entry that explained nothing in a run over the checked-in corpus.
+#
+# family: the suite (rust, go, pytest, ...). side: `missing` (the framework lists it,
+# specdiff does not) or `extra` (specdiff outlines it, the framework does not list it).
+# match: a glob over the identifier `file > group > ... > test [N cases]`.
+# Fix a false positive once, here or in the normalisation, never in the comparison.
+
+[[known]]
+class = "macro-generated tests"
+family = "rust"
+side = "missing"
+match = "* > *generated*"
+reason = "macro_rules! bodies are token trees until expansion; specdiff reads source, not expanded code"
+
+[[known]]
+class = "cfg-gated tests"
+family = "rust"
+side = "extra"
+match = "* > only without the extra feature"
+reason = "the reference builds with --all-features, so a #[cfg(not(feature))] test is compiled out; specdiff outlines every cfg branch, which is what a reader of the diff wants"
+
+[[known]]
+class = "rstest #[values] matrix"
+family = "rust"
+side = "missing"
+match = "* > matrix > * > *"
+reason = "rstest expands #[values] into one test per combination, nested in generated modules named from the values; specdiff outlines the function once"
+
+[[known]]
+class = "rstest #[values] matrix"
+family = "rust"
+side = "extra"
+match = "* > matrix"
+reason = "the other half of the matrix class: specdiff's single spec for the function"
+
+[[known]]
+class = "proptest! tests not outlined"
+family = "rust"
+side = "missing"
+match = "* > addition commutes"
+reason = "frameworks/rust_proptest.toml's property_based detection is read by no code, and rust_proptest is never selected for a file (it declares no files); see TODO.md"
+
+[[known]]
+class = "plain modules inside a test module are flattened"
+family = "rust"
+side = "missing"
+match = "* > tests > inner > *"
+reason = "only a #[cfg(test)] mod becomes a group; a plain mod nested in one contributes its tests to the parent group"
+
+[[known]]
+class = "plain modules inside a test module are flattened"
+family = "rust"
+side = "extra"
+match = "* > tests > nested module test"
+reason = "the other half: the flattened test, one level up"
