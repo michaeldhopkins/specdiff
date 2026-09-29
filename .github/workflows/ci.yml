@@ -35,3 +35,29 @@ jobs:
       - uses: taiki-e/install-action@cargo-deny
       - name: cargo deny
         run: cargo deny check
+
+  differential:
+    name: Differential (outline vs each framework's own listing)
+    runs-on: ubuntu-latest
+    env:
+      SPECDIFF_DIFFERENTIAL_REQUIRE_ALL: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: gem install minitest
+        run: gem install minitest
+
+      - name: cargo test --test differential
+        run: cargo test --locked --test differential -- --ignored --nocapture
