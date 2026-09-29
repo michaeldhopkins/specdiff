@@ -55,3 +55,59 @@ family = "rust"
 side = "extra"
 match = "* > tests > nested module test"
 reason = "the other half: the flattened test, one level up"
+
+[[known]]
+class = "benchmarks, fuzz targets and examples"
+family = "go"
+side = "missing"
+match = "* > [BFE][a-z]*[A-Z]*"
+reason = "go test -list names Benchmark*, Fuzz* and Example* functions alongside tests; specdiff outlines Test* only (a decision: fuzz seeds and examples with output do run under go test)"
+
+[[known]]
+class = "build-tagged tests"
+family = "go"
+side = "extra"
+match = "billing/internal > OnlyWithTheIntegrationTag"
+reason = "the reference lists the default build, without -tags; specdiff outlines every file whatever its //go:build line"
+
+[[known]]
+class = "tests generated at run time"
+family = "minitest"
+side = "missing"
+match = "* > role *"
+reason = "define_method in a loop over a literal array names tests only when Ruby runs; specdiff expands `.each` only around DSL calls, not define_method"
+
+[[known]]
+class = "test classes found by superclass, not name"
+family = "minitest"
+side = "missing"
+match = "* > BaseCase > *"
+reason = "minitest runs every Minitest::Test subclass; specdiff groups classes named Test* or *Test and cannot see a superclass defined elsewhere"
+
+[[known]]
+class = "test classes found by superclass, not name"
+family = "minitest"
+side = "extra"
+match = "test/user_test.rb > inherited by every subclass"
+reason = "the other half: the base class's test, outlined outside any group"
+
+[[known]]
+class = "tests inherited from a superclass"
+family = "minitest"
+side = "missing"
+match = "* > Account > inherited by every subclass"
+reason = "minitest runs inherited test methods in every subclass; minitest.toml resolves include/extend only, not superclasses"
+
+[[known]]
+class = "namespace modules are not groups"
+family = "minitest"
+side = "missing"
+match = "* > Billing > InvoiceTest > *"
+reason = "the reference splits a class name on ::, so Billing::InvoiceTest is two segments; specdiff groups the class only, as its outline shows classes rather than Ruby namespaces"
+
+[[known]]
+class = "namespace modules are not groups"
+family = "minitest"
+side = "extra"
+match = "* > InvoiceTest > *"
+reason = "the other half: the class without its namespace"

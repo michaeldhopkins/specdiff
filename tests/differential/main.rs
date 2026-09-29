@@ -8,6 +8,8 @@
 //! `known.toml` explains fails, and so does an entry that explained nothing in a run over the
 //! checked-in corpus (so the list cannot rot).
 
+mod go;
+mod minitest;
 mod model;
 mod outline;
 mod run;
@@ -23,7 +25,17 @@ type Reference = fn(&Path, &str) -> Result<Vec<TestId>, Skip>;
 fn reference_for(family: &str) -> Option<Reference> {
     match family {
         "rust" => Some(rust::reference),
+        "go" => Some(go::reference),
+        "minitest" => Some(minitest::reference),
         _ => None,
+    }
+}
+
+/// specdiff's side, at the depth the family's reference can see.
+fn outlined(family: &str, project: &Path) -> Vec<TestId> {
+    match family {
+        "go" => go::project(&outline::trees(project, family)),
+        _ => outline::outline(project, family),
     }
 }
 
@@ -47,8 +59,7 @@ fn compare_project(report: &mut Report, family: &str, project: &Path, known: &[m
     let reference = reference_for(family).unwrap_or_else(|| panic!("no reference for {family}"));
     match reference(&project, &name) {
         Ok(listed) => {
-            let outlined = outline::outline(&project, family);
-            report.add(family, &listed, &outlined, known);
+            report.add(family, &listed, &outlined(family, &project), known);
             Some(())
         }
         Err(Skip(why)) => {
@@ -96,4 +107,16 @@ fn real_projects_agree_with_their_frameworks() {
     }
     eprintln!("{}", report.render());
     assert!(report.unexplained.is_empty(), "unexplained differences; see the report above");
+}
+
+#[test]
+#[ignore = "runs go test -list over the corpus"]
+fn go_outline_agrees_with_go_test_list() {
+    check_corpus("go");
+}
+
+#[test]
+#[ignore = "loads the corpus with ruby and minitest"]
+fn minitest_outline_agrees_with_runnable_methods() {
+    check_corpus("minitest");
 }

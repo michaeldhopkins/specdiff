@@ -78,8 +78,17 @@ impl FileSource for Project {
     }
 }
 
-/// specdiff's outline of every file in `root` whose framework belongs to `family`.
+/// specdiff's outline, flattened to one identifier per leaf.
 pub fn outline(root: &Path, family_name: &str) -> Vec<TestId> {
+    let mut ids = Vec::new();
+    for (path, nodes) in trees(root, family_name) {
+        flatten(&path, &nodes, &mut Vec::new(), &mut ids);
+    }
+    ids
+}
+
+/// specdiff's outline of every file in `root` whose framework belongs to `family`.
+pub fn trees(root: &Path, family_name: &str) -> Vec<(String, Vec<SpecNode>)> {
     let all = project_files(root);
     let tests: Vec<String> =
         all.iter().filter(|f| !frameworks_for_file(Path::new(f.as_str())).is_empty()).cloned().collect();
@@ -95,7 +104,7 @@ pub fn outline(root: &Path, family_name: &str) -> Vec<TestId> {
     };
     let shared = if registry.is_empty() { None } else { Some(&registry) };
 
-    let mut ids = Vec::new();
+    let mut out = Vec::new();
     for path in &project.tests {
         let Some(fw) = frameworks_for_file(Path::new(path)).first().copied() else { continue };
         if family(&fw.name) != family_name {
@@ -103,10 +112,10 @@ pub fn outline(root: &Path, family_name: &str) -> Vec<TestId> {
         }
         let Some(source) = project.read_head(path) else { continue };
         if let Some(tree) = specdiff::parse::engine::parse_file_with_shared(&source, path, fw, shared) {
-            flatten(path, &tree.root, &mut Vec::new(), &mut ids);
+            out.push((path.clone(), tree.root));
         }
     }
-    ids
+    out
 }
 
 /// Leaves become identifiers. A group with no children lists no test in any framework, so
