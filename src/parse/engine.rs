@@ -2919,6 +2919,14 @@ mod mutation_tests {
     }
 
     #[test]
+    fn minitest_include_of_a_method_call_is_not_a_module_reference() {
+        let source = "module Shared\n  def test_shared\n  end\nend\n\nclass TestUser < Minitest::Test\n  include Mixins.Shared\n  def test_own\n  end\nend\n";
+        let root = with_types("minitest", "test/models/user_test.rb", source);
+        let user = root.iter().find(|n| n.name == "User").expect("User");
+        assert_eq!(names(&user.children), vec!["own"]);
+    }
+
+    #[test]
     fn phpunit_inherits_from_the_base_class_not_the_interfaces() {
         let source = "<?php\n\nclass BaseTest extends TestCase {\n    public function testShared() {}\n}\n\nclass Helpers extends TestCase {\n    public function testHelper() {}\n}\n\nclass UserTest extends BaseTest implements Helpers {\n    public function testOwn() {}\n}\n";
         let root = with_types("phpunit", "tests/UserTest.php", source);

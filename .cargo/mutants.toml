@@ -44,12 +44,6 @@ exclude_re = [
     # nothing either way. Anchored by line because the other `&&` in the function is real.
     # Remove this if jest helpers start registering.
     '^src/pipeline\.rs:323:13: replace && with \|\| in build_shared_registry$',
-    # Equivalent. In the `method_call` inheritance strategy (minitest's `include`/`extend`),
-    # `arg_kinds` only keeps constants and scope resolutions. Any other argument's text
-    # (a string, a symbol, `self`, a parenthesis) cannot equal a registered type name,
-    # since types are registered from class and module names, so the refs it adds never
-    # resolve. Anchored by line: the same mutant in the `superclass_args` branch is real.
-    '^src/parse/engine\.rs:1273:59: replace == with != in collect_refs$',
     # Equivalent. `paths.len() < 4` only picks serial reads or rayon; both read each path
     # the same way and map any failure to None, so the result is identical either side.
     'replace < with (==|>|<=) in <impl Vcs for JjVcs>::files_at_revision$',

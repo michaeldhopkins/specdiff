@@ -337,14 +337,20 @@ unviable: 83%. Every miss but one was a gap or unreachable code.
   `method_call` branch of `collect_refs`, whose extra refs (strings, symbols,
   `self`) can never name a registered type. With it excluded (confirmed by
   `--list`, not a third run), 0 missed: 100%.
+- That exclusion was wrong and anchored by line, so it stopped matching when
+  the line moved (CI run 37100254863). Under `!=` a method-call argument
+  counts as a reference too, and `include Mixins.Shared` resolves through its
+  last segment to a module `Shared`. It now has a test
+  (`minitest_include_of_a_method_call_is_not_a_module_reference`) and no
+  exclusion.
 
 Excluded as equivalent, with the argument next to each in `.cargo/mutants.toml`:
 the two `* 1` mutants of the resume index in `truncate_unchanged_runs`
 (anchored by line and column, so they reappear if the line moves), the
 empty-string shortcut in `name_similarity`, the serial/parallel thresholds
 in `JjVcs::files_at_revision` and `diff_with_registries`, the two
-`src/output/mod.rs` mutants above, the jest-only guard in
-`build_shared_registry`, and the `method_call` `arg_kinds` check in `collect_refs`.
+`src/output/mod.rs` mutants above, and the jest-only guard in
+`build_shared_registry`.
 
 ## Adding a new framework
 
