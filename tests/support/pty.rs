@@ -1,9 +1,9 @@
 //! specdiff in a pseudo-terminal, for tests of what crosses the terminal.
 //!
-//! Modelled on purview's `tests/support/pty.rs` (isolation, stubs) and branchdiff's
-//! `tests/integration/harness/session.rs` (reading escape sequences). The binary is the one
-//! cargo just built (`CARGO_BIN_EXE_specdiff`), the environment is cleared, HOME is a temp
-//! dir and PATH is the stub directory, so nothing on the developer's machine is reached.
+//! Reading escape sequences follows branchdiff's `tests/integration/harness/session.rs`. The
+//! binary is the one cargo just built (`CARGO_BIN_EXE_specdiff`), the environment is cleared,
+//! HOME is a temp dir and PATH is the stub directory, so nothing on the developer's machine is
+//! reached.
 //! Everything the TUI decides on its own is a unit or render test in `src/tui`.
 
 #![allow(dead_code)]

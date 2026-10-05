@@ -1,4 +1,4 @@
-//! File-length gate for `src/`, adapted from cmdproof's `engine/tests/file_length.rs`.
+//! File-length gate for `src/`.
 //!
 //! Inline test items are not counted, so adding tests never breaks the build. Files already over
 //! the limit when the gate went in are pinned at that size: they may shrink, never grow, and a
