@@ -280,6 +280,34 @@ mod tests {
         );
     }
 
+    /// An untracked `.jj/` (no `.jj/.gitignore` to hide it) must not surface as
+    /// added files.
+    #[test]
+    fn changed_paths_to_workdir_leaves_out_an_untracked_jj_directory() {
+        let (dir, _) = create_test_repo();
+        let path = dir.path();
+        std::fs::create_dir_all(path.join(".jj/repo")).expect("mkdir .jj");
+        std::fs::write(path.join(".jj/repo/op_heads"), "x\n").expect("write .jj file");
+        std::fs::write(path.join("spec/models/order_spec.rb"), "new\n").expect("write untracked");
+
+        let changed = changed_paths_to_workdir(path, "HEAD").expect("changed_paths_to_workdir");
+
+        assert_eq!(changed, vec![PathBuf::from("spec/models/order_spec.rb")]);
+    }
+
+    #[test]
+    fn git_files_matching_globs_the_head_tree() {
+        let (dir, vcs) = create_test_repo();
+        std::fs::write(dir.path().join("spec/models/untracked_spec.rb"), "x\n")
+            .expect("write untracked");
+
+        let files = vcs
+            .files_matching("spec/**/*_spec.rb")
+            .expect("files_matching");
+
+        assert_eq!(files, vec![PathBuf::from("spec/models/user_spec.rb")]);
+    }
+
     #[test]
     fn changed_paths_to_workdir_clean_worktree_is_empty() {
         let (dir, _) = create_test_repo();
