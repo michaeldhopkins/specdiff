@@ -508,6 +508,26 @@ mod tests {
 
     #[test]
     #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
+    fn committed_rename_is_a_changed_file() {
+        let dir = create_test_repo();
+        let root = dir.path();
+        let jj = |args: &[&str]| {
+            let status = Command::new("jj").args(args).current_dir(root).output().expect("jj").status;
+            assert!(status.success(), "jj {args:?}");
+        };
+        let spec = "RSpec.describe User do\n  it 'saves' do\n  end\nend\n";
+        std::fs::write(root.join("user_spec.rb"), spec).expect("write");
+        jj(&["commit", "-m", "add spec"]);
+        std::fs::rename(root.join("user_spec.rb"), root.join("account_spec.rb")).expect("rename");
+        jj(&["commit", "-m", "rename spec"]);
+
+        let vcs = JjVcs::new(root.to_path_buf());
+        let changed = vcs.changed_files("@--", "@-").expect("changed_files");
+        assert_eq!(changed, vec![PathBuf::from("account_spec.rb")]);
+    }
+
+    #[test]
+    #[ignore = "requires jj CLI; run with cargo test -- --ignored"]
     fn diskwalk_of_an_unchanged_tree_reports_nothing() {
         let dir = create_test_repo();
         let vcs = JjVcs::new(dir.path().to_path_buf());
