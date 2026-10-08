@@ -363,6 +363,10 @@ in `JjVcs::files_at_revision` and `diff_with_registries`, the two
 7. Add E2E test case in tests/e2e.rs
 8. Run full test suite + clippy
 
+## Dependencies
+
+Dependencies move through the owner's `specdiff-deps` upkeep job, never Dependabot. It also adopts each new release of vcs-runner.
+
 ## Publishing
 
 1. Bump version in Cargo.toml
