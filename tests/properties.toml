@@ -10,7 +10,6 @@ owed = [
   "src/diff/types.rs",
   "src/output/mod.rs",
   "src/parse/mod.rs",
-  "src/parse/registry.rs",
   "src/parse/shared.rs",
   "src/tui/input.rs",
   "src/tui/render.rs",
@@ -50,7 +49,12 @@ owed = [
 "src/parse/params.rs" = [
   "a_go_test_is_exactly_a_test_function_taking_a_testing_t",
 ]
-"src/parse/registry.rs" = []
+"src/parse/registry.rs" = [
+  "frameworks_for_file_only_returns_frameworks_with_a_matching_extension",
+  "normalize_file_path_is_the_identity_when_path_grouping_is_absent",
+  "frameworks_for_file_returns_each_framework_at_most_once",
+  "normalize_file_path_removes_forward_slashes_when_separator_is_non_empty",
+]
 "src/parse/shared.rs" = []
 "src/tui/input.rs" = []
 "src/tui/render.rs" = []

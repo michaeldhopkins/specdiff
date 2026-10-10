@@ -525,4 +525,70 @@ mod tests {
         let jest = all_frameworks().iter().find(|f| f.name == "jest").expect("jest");
         assert_eq!(normalize_file_path("__tests__/user.test.spec.js", jest), "user");
     }
+
+    proptest::proptest! {
+        #[test]
+        fn frameworks_for_file_only_returns_frameworks_with_a_matching_extension(
+            ext in "[a-z]{1,5}",
+        ) {
+            let path = std::path::PathBuf::from(format!("file.{ext}"));
+            let needle = format!(".{ext}");
+            let matched = frameworks_for_file(&path);
+            proptest::prop_assert!(
+                matched.iter().all(|fw| fw
+                    .files
+                    .as_ref()
+                    .is_some_and(|files| files.extensions.contains(&needle))),
+                "frameworks_for_file returned at least one framework whose extensions do not contain {:?}",
+                needle,
+            );
+        }
+
+        #[test]
+        fn normalize_file_path_is_the_identity_when_path_grouping_is_absent(
+            path in "[a-zA-Z0-9_./-]{0,30}",
+        ) {
+            let toml_src = r#"
+                name = "stub"
+                language = "stub"
+                tree_sitter_crate = "stub"
+            "#;
+            let fw: FrameworkDef = toml::from_str(toml_src).expect("minimal framework parses");
+            proptest::prop_assert!(fw.path_grouping.is_none());
+            proptest::prop_assert_eq!(normalize_file_path(&path, &fw), path);
+        }
+
+        #[test]
+        fn frameworks_for_file_returns_each_framework_at_most_once(
+            path in "[a-zA-Z0-9_./-]{0,30}",
+        ) {
+            let matched = frameworks_for_file(std::path::Path::new(&path));
+            let mut pointers: Vec<*const FrameworkDef> = Vec::with_capacity(matched.len());
+            for fw in &matched {
+                let ptr = *fw as *const FrameworkDef;
+                proptest::prop_assert!(
+                    !pointers.contains(&ptr),
+                    "framework {} appeared more than once in the result",
+                    fw.name,
+                );
+                pointers.push(ptr);
+            }
+        }
+
+        #[test]
+        fn normalize_file_path_removes_forward_slashes_when_separator_is_non_empty(
+            path in "[a-zA-Z0-9_./-]{0,30}",
+        ) {
+            let fw = all_frameworks().iter().find(|f| f.name == "rspec").expect("rspec");
+            let pg = fw.path_grouping.as_ref().expect("rspec has path_grouping");
+            proptest::prop_assume!(!pg.separator.is_empty());
+            let normalized = normalize_file_path(&path, fw);
+            proptest::prop_assert!(
+                !normalized.contains('/'),
+                "normalized path {:?} still contains '/' even though rspec uses a non-empty separator {:?}",
+                normalized,
+                pg.separator,
+            );
+        }
+    }
 }
