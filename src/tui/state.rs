@@ -211,4 +211,64 @@ mod tests {
         assert!(!state.merge_base_moved("abc123"));
         assert!(state.merge_base_moved("def456"));
     }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn next_section_never_moves_backward(
+            current in 0usize..10_000,
+            offsets in proptest::collection::vec(0usize..10_000, 0..64),
+        ) {
+            let offsets = {
+                let mut o = offsets;
+                o.sort_unstable();
+                o
+            };
+            let next = next_section(current, &offsets);
+            proptest::prop_assert!(next >= current);
+        }
+
+        #[test]
+        fn prev_section_never_moves_forward(
+            current in 0usize..10_000,
+            offsets in proptest::collection::vec(0usize..10_000, 0..64),
+        ) {
+            let offsets = {
+                let mut o = offsets;
+                o.sort_unstable();
+                o
+            };
+            let prev = prev_section(current, &offsets);
+            proptest::prop_assert!(prev <= current);
+        }
+
+        #[test]
+        fn next_section_returns_an_offset_strictly_above_current_when_one_exists(
+            current in 0usize..5_000,
+            offsets in proptest::collection::vec(0usize..10_000, 1..64),
+        ) {
+            let offsets = {
+                let mut o = offsets;
+                o.sort_unstable();
+                o
+            };
+            if let Some(&above) = offsets.iter().find(|&&o| o > current) {
+                proptest::prop_assert_eq!(next_section(current, &offsets), above);
+            } else {
+                proptest::prop_assert_eq!(next_section(current, &offsets), current);
+            }
+        }
+
+        #[test]
+        fn stale_threshold_monotone_in_age(
+            a in 0u64..60_000,
+            b in 0u64..60_000,
+        ) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            let lo_stale = merge_base_is_stale(Duration::from_millis(lo));
+            let hi_stale = merge_base_is_stale(Duration::from_millis(hi));
+            proptest::prop_assert!(!lo_stale || hi_stale);
+        }
+    }
 }

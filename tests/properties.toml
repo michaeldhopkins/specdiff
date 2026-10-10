@@ -12,7 +12,6 @@ owed = [
   "src/parse/mod.rs",
   "src/tui/input.rs",
   "src/tui/render.rs",
-  "src/tui/state.rs",
   "src/tui/watch.rs",
 ]
 
@@ -62,7 +61,12 @@ owed = [
 ]
 "src/tui/input.rs" = []
 "src/tui/render.rs" = []
-"src/tui/state.rs" = []
+"src/tui/state.rs" = [
+  "next_section_never_moves_backward",
+  "prev_section_never_moves_forward",
+  "next_section_returns_an_offset_strictly_above_current_when_one_exists",
+  "stale_threshold_monotone_in_age",
+]
 "src/tui/watch.rs" = []
 
 [effectful]
