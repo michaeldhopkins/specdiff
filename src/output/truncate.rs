@@ -159,4 +159,128 @@ mod tests {
         truncate(&mut lines, 3, 2);
         assert_eq!(lines, original);
     }
+
+    fn reference_truncate(lines: &[Tok], head: usize, tail: usize) -> Vec<Tok> {
+        let mut out: Vec<Tok> = Vec::with_capacity(lines.len());
+        let mut i = 0;
+        while i < lines.len() {
+            if !matches!(lines[i], Tok::U(_)) {
+                out.push(lines[i].clone());
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < lines.len() && matches!(lines[i], Tok::U(_)) {
+                i += 1;
+            }
+            let run_len = i - start;
+            if run_len > head + tail + 1 {
+                let hidden = run_len - head - tail;
+                for j in 0..head {
+                    out.push(lines[start + j].clone());
+                }
+                out.push(Tok::Ellipsis(hidden));
+                for j in 0..tail {
+                    out.push(lines[start + head + hidden + j].clone());
+                }
+            } else {
+                for j in 0..run_len {
+                    out.push(lines[start + j].clone());
+                }
+            }
+        }
+        out
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn truncate_unchanged_runs_matches_a_simple_reference_implementation(
+            input in proptest::collection::vec(
+                (0u32..16, proptest::bool::ANY).prop_map(|(n, u)| if u { Tok::U(n) } else { Tok::C(n) }),
+                0..40,
+            ),
+            head in 0usize..4,
+            tail in 0usize..4,
+        ) {
+            let mut actual = input.clone();
+            truncate(&mut actual, head, tail);
+            let expected = reference_truncate(&input, head, tail);
+            prop_assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn truncate_unchanged_runs_is_idempotent(
+            input in proptest::collection::vec(
+                (0u32..16, proptest::bool::ANY).prop_map(|(n, u)| if u { Tok::U(n) } else { Tok::C(n) }),
+                0..40,
+            ),
+            head in 0usize..4,
+            tail in 0usize..4,
+        ) {
+            let mut once = input.clone();
+            truncate(&mut once, head, tail);
+            let mut twice = once.clone();
+            truncate(&mut twice, head, tail);
+            prop_assert_eq!(once, twice);
+        }
+
+        #[test]
+        fn truncate_unchanged_runs_keeps_every_maximal_unchanged_run_within_the_head_plus_tail_plus_one_window(
+            input in proptest::collection::vec(
+                (0u32..16, proptest::bool::ANY).prop_map(|(n, u)| if u { Tok::U(n) } else { Tok::C(n) }),
+                0..40,
+            ),
+            head in 0usize..4,
+            tail in 0usize..4,
+        ) {
+            let mut lines = input.clone();
+            truncate(&mut lines, head, tail);
+            let mut i = 0;
+            while i < lines.len() {
+                if !matches!(lines[i], Tok::U(_)) {
+                    i += 1;
+                    continue;
+                }
+                let start = i;
+                while i < lines.len() && matches!(lines[i], Tok::U(_)) {
+                    i += 1;
+                }
+                let run_len = i - start;
+                prop_assert!(
+                    run_len <= head + tail + 1,
+                    "maximal run of {} unchanged items at index {} exceeds head+tail+1={}",
+                    run_len,
+                    start,
+                    head + tail + 1,
+                );
+            }
+        }
+
+        #[test]
+        fn truncate_unchanged_runs_conserves_the_total_number_of_unchanged_items_via_ellipsis_counts(
+            input in proptest::collection::vec(
+                (0u32..16, proptest::bool::ANY).prop_map(|(n, u)| if u { Tok::U(n) } else { Tok::C(n) }),
+                0..40,
+            ),
+            head in 0usize..4,
+            tail in 0usize..4,
+        ) {
+            let unchanged_in_input = input.iter().filter(|t| matches!(t, Tok::U(_))).count();
+            let mut lines = input.clone();
+            truncate(&mut lines, head, tail);
+            let unchanged_in_output = lines
+                .iter()
+                .map(|t| match t {
+                    Tok::U(_) => 1,
+                    Tok::Ellipsis(n) => *n,
+                    Tok::C(_) => 0,
+                })
+                .sum::<usize>();
+            prop_assert_eq!(unchanged_in_input, unchanged_in_output);
+        }
+    }
 }

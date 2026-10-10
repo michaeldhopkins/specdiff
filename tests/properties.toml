@@ -9,7 +9,6 @@
 owed = [
   "src/diff/types.rs",
   "src/output/mod.rs",
-  "src/output/truncate.rs",
   "src/parse/mod.rs",
   "src/parse/registry.rs",
   "src/parse/shared.rs",
@@ -34,7 +33,12 @@ owed = [
 ]
 "src/diff/types.rs" = []
 "src/output/mod.rs" = []
-"src/output/truncate.rs" = []
+"src/output/truncate.rs" = [
+  "truncate_unchanged_runs_matches_a_simple_reference_implementation",
+  "truncate_unchanged_runs_is_idempotent",
+  "truncate_unchanged_runs_keeps_every_maximal_unchanged_run_within_the_head_plus_tail_plus_one_window",
+  "truncate_unchanged_runs_conserves_the_total_number_of_unchanged_items_via_ellipsis_counts",
+]
 "src/parse/attributes.rs" = [
   "only_the_exact_name_or_one_label_under_it_names_an_attribute",
 ]
