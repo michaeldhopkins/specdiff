@@ -7,7 +7,6 @@
 # `owed`, which may only shrink: an entry that gains a property leaves in the same change.
 
 owed = [
-  "src/cli.rs",
   "src/diff/mod.rs",
   "src/diff/types.rs",
   "src/output/mod.rs",
@@ -22,7 +21,12 @@ owed = [
 ]
 
 [pure]
-"src/cli.rs" = []
+"src/cli.rs" = [
+  "prints_matches_its_truth_table",
+  "prints_round_trips_through_clap_parse",
+  "tree_options_is_a_pointwise_isomorphism_of_its_three_flags",
+  "tree_options_is_idempotent_and_involutive_under_flag_negation",
+]
 "src/diff/mod.rs" = []
 "src/diff/types.rs" = []
 "src/output/mod.rs" = []

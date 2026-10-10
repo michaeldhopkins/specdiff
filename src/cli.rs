@@ -63,6 +63,7 @@ pub enum OutputFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn tree_options(args: &[&str]) -> TreeOptions {
         let argv = std::iter::once("specdiff").chain(args.iter().copied());
@@ -93,5 +94,81 @@ mod tests {
         assert!(!opts.color);
         assert!(opts.changed_only);
         assert!(opts.full_context);
+    }
+
+    proptest! {
+        #[test]
+        fn prints_matches_its_truth_table(
+            print_flag in proptest::bool::ANY,
+            stdout_is_terminal in proptest::bool::ANY,
+        ) {
+            let cli = Cli { print: print_flag, ..cli_with_defaults() };
+            prop_assert_eq!(cli.prints(stdout_is_terminal), print_flag || !stdout_is_terminal);
+        }
+
+        #[test]
+        fn prints_round_trips_through_clap_parse(
+            print_flag in proptest::bool::ANY,
+        ) {
+            let mut argv: Vec<&str> = vec!["specdiff"];
+            if print_flag {
+                argv.push("--print");
+            }
+            let parsed = Cli::parse_from(argv);
+            prop_assert_eq!(parsed.print, print_flag);
+            prop_assert!(parsed.prints(false));
+            prop_assert_eq!(parsed.prints(true), print_flag);
+        }
+
+        #[test]
+        fn tree_options_is_a_pointwise_isomorphism_of_its_three_flags(
+            no_color in proptest::bool::ANY,
+            changed_only in proptest::bool::ANY,
+            full_context in proptest::bool::ANY,
+        ) {
+            let cli = Cli {
+                no_color,
+                changed_only,
+                full_context,
+                ..cli_with_defaults()
+            };
+            let opts = cli.tree_options();
+            prop_assert_eq!(opts.color, !no_color);
+            prop_assert_eq!(opts.changed_only, changed_only);
+            prop_assert_eq!(opts.full_context, full_context);
+        }
+
+        #[test]
+        fn tree_options_is_idempotent_and_involutive_under_flag_negation(
+            no_color in proptest::bool::ANY,
+            changed_only in proptest::bool::ANY,
+            full_context in proptest::bool::ANY,
+        ) {
+            let cli = Cli {
+                no_color,
+                changed_only,
+                full_context,
+                ..cli_with_defaults()
+            };
+            let first = cli.tree_options();
+            let second = cli.tree_options();
+            prop_assert_eq!(first.color, second.color);
+            prop_assert_eq!(first.changed_only, second.changed_only);
+            prop_assert_eq!(first.full_context, second.full_context);
+            let negated = Cli {
+                no_color: !no_color,
+                changed_only: !changed_only,
+                full_context: !full_context,
+                ..cli_with_defaults()
+            };
+            let flipped = negated.tree_options();
+            prop_assert_eq!(flipped.color, !first.color);
+            prop_assert_eq!(flipped.changed_only, !first.changed_only);
+            prop_assert_eq!(flipped.full_context, !first.full_context);
+        }
+    }
+
+    fn cli_with_defaults() -> Cli {
+        Cli::parse_from(["specdiff"])
     }
 }
