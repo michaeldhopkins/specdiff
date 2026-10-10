@@ -1147,3 +1147,93 @@ mod tests {
         assert_eq!(filtered.len(), 1);
     }
 }
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::parse::SpecNode;
+    use proptest::prelude::*;
+
+    fn arb_short_word() -> impl Strategy<Value = String> {
+        "[a-z]{0,6}".prop_map(|s| s)
+    }
+
+    fn arb_name() -> impl Strategy<Value = String> {
+        proptest::collection::vec(arb_short_word(), 0..4).prop_map(|parts| parts.join(" "))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn name_similarity_is_symmetric(a in arb_name(), b in arb_name()) {
+            prop_assert_eq!(name_similarity(&a, &b), name_similarity(&b, &a));
+        }
+
+        #[test]
+        fn name_similarity_lives_in_unit_interval_and_is_one_for_equal_inputs(
+            a in arb_name(),
+            b in arb_name(),
+        ) {
+            let s_ab = name_similarity(&a, &b);
+            prop_assert!(s_ab >= 0.0);
+            prop_assert!(s_ab <= 1.0);
+            prop_assert!(s_ab.is_finite());
+            if a == b {
+                prop_assert_eq!(s_ab, 1.0);
+            }
+        }
+
+        #[test]
+        fn diff_spec_nodes_is_idempotent_for_equal_inputs(
+            names in proptest::collection::vec(arb_name(), 0..6),
+        ) {
+            let nodes: Vec<SpecNode> = names.into_iter().enumerate().map(|(i, n)| SpecNode::spec(n, i + 1)).collect();
+            let diff = diff_spec_nodes(&nodes, &nodes);
+            prop_assert_eq!(diff.len(), nodes.len());
+            prop_assert!(diff.iter().all(|d| d.kind == DiffKind::Unchanged));
+        }
+
+        #[test]
+        fn filter_file_diffs_keeps_only_files_with_matching_path_or_node_name(
+            pattern in arb_name(),
+            paths in proptest::collection::vec(arb_name(), 1..4),
+            node_names in proptest::collection::vec(arb_name(), 0..4),
+        ) {
+            let pattern_lower = pattern.to_lowercase();
+            if pattern_lower.is_empty() {
+                return Ok(());
+            }
+            let diffs: Vec<FileDiff> = paths
+                .into_iter()
+                .map(|p| FileDiff {
+                    path: p,
+                    nodes: node_names
+                        .iter()
+                        .cloned()
+                        .map(|n| DiffNode {
+                            name: n,
+                            kind: DiffKind::Added,
+                            old_name: None,
+                            param_cases: None,
+                            old_param_cases: None,
+                            children: vec![],
+                        })
+                        .collect(),
+                })
+                .collect();
+            let filtered = filter_file_diffs(diffs, &pattern);
+            fn node_name_matches_any(nodes: &[DiffNode], pat: &str) -> bool {
+                nodes.iter().any(|n| n.name.to_lowercase().contains(pat) || node_name_matches_any(&n.children, pat))
+            }
+            for fd in &filtered {
+                let path_matches = fd.path.to_lowercase().contains(&pattern_lower);
+                prop_assert!(
+                    path_matches || node_name_matches_any(&fd.nodes, &pattern_lower),
+                    "file {} kept but neither its path nor any node name contains {:?}",
+                    fd.path,
+                    pattern,
+                );
+            }
+        }
+    }
+}

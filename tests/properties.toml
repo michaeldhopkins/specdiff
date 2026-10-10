@@ -7,7 +7,6 @@
 # `owed`, which may only shrink: an entry that gains a property leaves in the same change.
 
 owed = [
-  "src/diff/mod.rs",
   "src/diff/types.rs",
   "src/output/mod.rs",
   "src/output/truncate.rs",
@@ -27,7 +26,12 @@ owed = [
   "tree_options_is_a_pointwise_isomorphism_of_its_three_flags",
   "tree_options_is_idempotent_and_involutive_under_flag_negation",
 ]
-"src/diff/mod.rs" = []
+"src/diff/mod.rs" = [
+  "name_similarity_is_symmetric",
+  "name_similarity_lives_in_unit_interval_and_is_one_for_equal_inputs",
+  "diff_spec_nodes_is_idempotent_for_equal_inputs",
+  "filter_file_diffs_keeps_only_files_with_matching_path_or_node_name",
+]
 "src/diff/types.rs" = []
 "src/output/mod.rs" = []
 "src/output/truncate.rs" = []
