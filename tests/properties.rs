@@ -145,7 +145,7 @@ fn check(root: &Path, roots: &[&str], manifest: &str) -> Vec<String> {
 
 /// Entries in `owed` when this went in. The list may only shrink; without a pin a new pure
 /// file could be added to it as easily as given a property.
-const OWED: usize = 8;
+const OWED: usize = 7;
 
 fn owed_verdict(count: usize, pin: usize) -> Option<String> {
     if count > pin {

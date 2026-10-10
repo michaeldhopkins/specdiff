@@ -487,4 +487,86 @@ end
         assert_eq!(user.children[0].kind, crate::parse::SpecKind::SharedInclusion);
         assert_eq!(user.children[1].name, "has a name");
     }
+
+    proptest::proptest! {
+        #[test]
+        fn a_registered_definition_round_trips_unchanged_through_get(
+            name in "[a-z][a-z0-9_]{0,12}",
+            spec_count in 1usize..5,
+        ) {
+            let specs: Vec<SpecNode> = (0..spec_count)
+                .map(|i| SpecNode::spec(format!("spec_{i}"), i + 1))
+                .collect();
+            let mut registry = SharedExampleRegistry::default();
+            registry.register(name.clone(), specs.clone());
+            proptest::prop_assert_eq!(registry.len(), 1);
+            proptest::prop_assert!(!registry.is_empty());
+            proptest::prop_assert_eq!(registry.get(&name), Some(specs.as_slice()));
+            proptest::prop_assert_eq!(registry.get("missing"), None);
+        }
+
+        #[test]
+        fn register_type_is_idempotent_keeping_the_first_registration(
+            name in "[a-z][a-z0-9_]{0,12}",
+            first_lines in proptest::collection::vec(1usize..50, 1..4),
+            second_lines in proptest::collection::vec(1usize..50, 1..4),
+        ) {
+            let first: Vec<SpecNode> = first_lines
+                .iter()
+                .map(|&l| SpecNode::spec("first", l))
+                .collect();
+            let second: Vec<SpecNode> = second_lines
+                .iter()
+                .map(|&l| SpecNode::spec("second", l))
+                .collect();
+            let mut registry = SharedExampleRegistry::default();
+            registry.register_type(name.clone(), first.clone());
+            registry.register_type(name.clone(), second);
+            proptest::prop_assert_eq!(registry.get_type(&name), Some(first.as_slice()));
+        }
+
+        #[test]
+        fn set_type_refs_is_idempotent_keeping_the_first_set_of_refs(
+            name in "[a-z][a-z0-9_]{0,12}",
+            first_ref in "[a-z]{1,6}",
+            second_ref in "[a-z]{1,6}",
+        ) {
+            proptest::prop_assume!(first_ref != second_ref);
+            let mut registry = SharedExampleRegistry::default();
+            registry.set_type_refs(name.clone(), vec![first_ref.clone()]);
+            registry.set_type_refs(name.clone(), vec![second_ref.clone()]);
+            registry.register_type(
+                first_ref.clone(),
+                vec![SpecNode::spec("from_first", 1)],
+            );
+            registry.register_type(
+                second_ref.clone(),
+                vec![SpecNode::spec("from_second", 2)],
+            );
+            let resolved = registry.resolve_type(&name);
+            proptest::prop_assert_eq!(resolved.len(), 1);
+            proptest::prop_assert_eq!(&resolved[0].name, "from_first");
+        }
+
+        #[test]
+        fn resolve_type_aggregates_every_leaf_spec_once_along_a_ref_chain(
+            chain_len in 2usize..5,
+            leaf_count in 1usize..4,
+        ) {
+            let names: Vec<String> = (0..chain_len).map(|i| format!("N{i}")).collect();
+            let leaf_specs: Vec<SpecNode> = (0..leaf_count)
+                .map(|i| SpecNode::spec(format!("leaf_{i}"), i + 1))
+                .collect();
+            let mut registry = SharedExampleRegistry::default();
+            for (i, n) in names.iter().enumerate() {
+                if i + 1 < chain_len {
+                    registry.set_type_refs(n.clone(), vec![names[i + 1].clone()]);
+                } else {
+                    registry.register_type(n.clone(), leaf_specs.clone());
+                }
+            }
+            let resolved = registry.resolve_type(&names[0]);
+            proptest::prop_assert_eq!(resolved, leaf_specs);
+        }
+    }
 }

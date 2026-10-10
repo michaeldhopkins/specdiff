@@ -10,7 +10,6 @@ owed = [
   "src/diff/types.rs",
   "src/output/mod.rs",
   "src/parse/mod.rs",
-  "src/parse/shared.rs",
   "src/tui/input.rs",
   "src/tui/render.rs",
   "src/tui/state.rs",
@@ -55,7 +54,12 @@ owed = [
   "frameworks_for_file_returns_each_framework_at_most_once",
   "normalize_file_path_removes_forward_slashes_when_separator_is_non_empty",
 ]
-"src/parse/shared.rs" = []
+"src/parse/shared.rs" = [
+  "a_registered_definition_round_trips_unchanged_through_get",
+  "register_type_is_idempotent_keeping_the_first_registration",
+  "set_type_refs_is_idempotent_keeping_the_first_set_of_refs",
+  "resolve_type_aggregates_every_leaf_spec_once_along_a_ref_chain",
+]
 "src/tui/input.rs" = []
 "src/tui/render.rs" = []
 "src/tui/state.rs" = []
