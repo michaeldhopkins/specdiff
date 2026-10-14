@@ -532,6 +532,7 @@ end
             second_ref in "[a-z]{1,6}",
         ) {
             proptest::prop_assume!(first_ref != second_ref);
+            proptest::prop_assume!(name != first_ref && name != second_ref);
             let mut registry = SharedExampleRegistry::default();
             registry.set_type_refs(name.clone(), vec![first_ref.clone()]);
             registry.set_type_refs(name.clone(), vec![second_ref.clone()]);
