@@ -5,6 +5,10 @@ on:
     branches: ["**"]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
@@ -15,6 +19,7 @@ jobs:
   ci:
     name: Check, Test, Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -42,6 +47,7 @@ jobs:
   differential:
     name: Differential (outline vs each framework's own listing)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       SPECDIFF_DIFFERENTIAL_REQUIRE_ALL: "1"
     steps:
@@ -64,3 +70,20 @@ jobs:
 
       - name: cargo test --test differential
         run: cargo test --locked --test differential -- --ignored --nocapture
+
+  system-libgit2:
+    name: No system libgit2 (macOS with Homebrew libgit2)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Homebrew libgit2
+        run: brew install libgit2
+
+      - name: cargo test --test no_system_libgit2
+        run: cargo test --locked --test no_system_libgit2
