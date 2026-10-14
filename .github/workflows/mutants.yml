@@ -75,6 +75,7 @@ jobs:
             exit 1
           fi
 
+      # scripts/mutants-run.sh decides the verdict from mutants.out/missed.txt, so exit 3 passes only when nothing was missed, and stops cargo-mutants at a time budget.
       # Exit codes: 2 a mutant was MISSED (the finding), 3 one timed out (usually an
       # injected infinite loop, a real result, so counted as caught and passed), 4 the
       # baseline failed, 5 or 6 the diff does not match the tree or is malformed (a bug in
@@ -106,11 +107,7 @@ jobs:
             exit 0
           fi
           rc=0
-          cargo mutants --no-shuffle -vV -j2 --in-diff mutants.diff || rc=$?
-          if [ "$rc" -eq 3 ]; then
-            echo "::notice::timeouts counted as caught; see mutants.out/timeout.txt"
-            rc=0
-          fi
+          scripts/mutants-run.sh --no-shuffle -vV -j2 --in-diff mutants.diff || rc=$?
           exit "$rc"
 
       - name: Summarise
@@ -193,11 +190,7 @@ jobs:
           echo "$k" > mutants-slice.txt
           echo "Slice $k/$SHARDS"
           rc=0
-          cargo mutants --no-shuffle -vV -j2 --shard "$k/$SHARDS" || rc=$?
-          if [ "$rc" -eq 3 ]; then
-            echo "::notice::timeouts counted as caught; see mutants.out/timeout.txt"
-            rc=0
-          fi
+          MUTANTS_BUDGET_PASSES=1 scripts/mutants-run.sh --no-shuffle -vV -j2 --shard "$k/$SHARDS" || rc=$?
           exit "$rc"
 
       - name: Summarise
