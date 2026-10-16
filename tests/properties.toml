@@ -7,7 +7,6 @@
 # `owed`, which may only shrink: an entry that gains a property leaves in the same change.
 
 owed = [
-  "src/diff/types.rs",
   "src/output/mod.rs",
   "src/parse/mod.rs",
   "src/tui/input.rs",
@@ -28,7 +27,12 @@ owed = [
   "diff_spec_nodes_is_idempotent_for_equal_inputs",
   "filter_file_diffs_keeps_only_files_with_matching_path_or_node_name",
 ]
-"src/diff/types.rs" = []
+"src/diff/types.rs" = [
+  "stats_counts_added_and_removed_at_leaves_only_and_renamed_at_every_depth",
+  "stats_from_file_diffs_is_additive_over_concatenation",
+  "has_changes_is_true_iff_any_node_in_subtree_is_not_unchanged",
+  "stats_is_empty_iff_all_four_counters_are_zero",
+]
 "src/output/mod.rs" = []
 "src/output/truncate.rs" = [
   "truncate_unchanged_runs_matches_a_simple_reference_implementation",

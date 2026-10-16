@@ -834,6 +834,40 @@ mod tests {
     }
 
     #[test]
+    fn stats_count_added_leaves_after_group_expansion() {
+        let base: Vec<SpecNode> = vec![];
+        let head = vec![SpecNode::group(
+            "validations",
+            1,
+            vec![
+                SpecNode::group(
+                    "email",
+                    2,
+                    vec![
+                        SpecNode::spec("rejects blank", 3),
+                        SpecNode::spec("rejects malformed", 4),
+                    ],
+                ),
+                SpecNode::group(
+                    "password",
+                    5,
+                    vec![
+                        SpecNode::spec("requires minimum length", 6),
+                        SpecNode::spec("rejects common passwords", 7),
+                        SpecNode::spec("must contain special char", 8),
+                    ],
+                ),
+            ],
+        )];
+        let diff = diff_spec_nodes(&base, &head);
+        let file_diff = FileDiff { path: "spec/models/user_spec.rb".into(), nodes: diff };
+        let stats = types::Stats::from_file_diffs(&[file_diff]);
+        assert_eq!(stats.added, 5, "each leaf under an added group counts individually");
+        assert_eq!(stats.removed, 0);
+        assert_eq!(stats.renamed, 0);
+    }
+
+    #[test]
     fn diff_removed_group_expands_children_symmetric_with_added() {
         // #6: Removed groups now mirror Added — their full subtree is carried
         // as Removed children, so a deletion of `describe "X" { it "a"; it "b" }`
