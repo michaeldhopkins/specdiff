@@ -10,7 +10,6 @@ owed = [
   "src/output/mod.rs",
   "src/parse/mod.rs",
   "src/tui/input.rs",
-  "src/tui/render.rs",
   "src/tui/watch.rs",
 ]
 
@@ -64,7 +63,12 @@ owed = [
   "resolve_type_aggregates_every_leaf_spec_once_along_a_ref_chain",
 ]
 "src/tui/input.rs" = []
-"src/tui/render.rs" = []
+"src/tui/render.rs" = [
+  "full_context_rendering_emits_one_line_per_node_plus_a_header_and_a_blank_per_file",
+  "file_headers_are_the_only_section_starts_and_appear_in_file_order",
+  "context_truncation_hides_only_unchanged_spec_lines",
+  "context_truncation_conserves_every_unchanged_line_via_ellipsis_counts",
+]
 "src/tui/state.rs" = [
   "next_section_never_moves_backward",
   "prev_section_never_moves_forward",

@@ -194,6 +194,7 @@ fn collect_lines(node: &DiffNode, lines: &mut Vec<TuiLine>, depth: usize, change
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn opts_truncating() -> RenderOptions {
         RenderOptions { changed_only: false, full_context: false }
@@ -401,5 +402,148 @@ mod tests {
         assert_eq!(rows[3], "  models::post");
         let (clamped, _) = screen(&two_files(), 100, opts, 60, 7);
         assert_eq!(clamped[3], "  models::post");
+    }
+
+    fn arbitrary_diff_kind() -> impl Strategy<Value = DiffKind> {
+        prop_oneof![
+            Just(DiffKind::Added),
+            Just(DiffKind::Removed),
+            Just(DiffKind::Renamed),
+            Just(DiffKind::Modified),
+            Just(DiffKind::Unchanged),
+        ]
+    }
+
+    fn arbitrary_diff_node() -> impl Strategy<Value = DiffNode> {
+        let leaf = (
+            "[a-z]{1,8}",
+            arbitrary_diff_kind(),
+            proptest::option::of("[a-z]{1,8}"),
+            proptest::option::of(0usize..9),
+        )
+            .prop_map(|(name, kind, old_name, param_cases)| DiffNode {
+                name,
+                kind,
+                old_name,
+                param_cases,
+                old_param_cases: None,
+                children: vec![],
+            });
+        leaf.prop_recursive(3, 16, 4, |inner| {
+            (
+                "[a-z]{1,8}",
+                arbitrary_diff_kind(),
+                proptest::option::of("[a-z]{1,8}"),
+                proptest::collection::vec(inner, 0..4),
+            )
+                .prop_map(|(name, kind, old_name, children)| DiffNode {
+                    name,
+                    kind,
+                    old_name,
+                    param_cases: None,
+                    old_param_cases: None,
+                    children,
+                })
+        })
+    }
+
+    fn arbitrary_file_diff() -> impl Strategy<Value = FileDiff> {
+        (
+            "[a-z]{1,8}(::[a-z]{1,8}){0,2}",
+            proptest::collection::vec(arbitrary_diff_node(), 0..4),
+        )
+            .prop_map(|(path, nodes)| FileDiff { path, nodes })
+    }
+
+    fn count_nodes(nodes: &[DiffNode]) -> usize {
+        nodes
+            .iter()
+            .map(|node| 1 + count_nodes(&node.children))
+            .sum()
+    }
+
+    fn is_unchanged_spec(item: &TuiLine) -> bool {
+        matches!(item.kind, LineKind::Spec(DiffKind::Unchanged))
+    }
+
+    fn ellipsis_hidden(text: &str) -> usize {
+        let open = text
+            .rfind('(')
+            .expect("ellipsis lines report a count in parentheses");
+        let rest = &text[open + 1..];
+        let end = rest
+            .find(' ')
+            .expect("ellipsis count is followed by ' hidden'");
+        rest[..end].parse().expect("ellipsis count is a number")
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn full_context_rendering_emits_one_line_per_node_plus_a_header_and_a_blank_per_file(
+            file_diffs in proptest::collection::vec(arbitrary_file_diff(), 0..4),
+        ) {
+            let opts = RenderOptions { changed_only: false, full_context: true };
+            let lines = build_tui_lines(&file_diffs, opts);
+            let expected: usize =
+                file_diffs.iter().map(|fd| 2 + count_nodes(&fd.nodes)).sum();
+            prop_assert_eq!(lines.len(), expected);
+            prop_assert!(!lines.iter().any(|l| matches!(l.kind, LineKind::Ellipsis)));
+        }
+
+        #[test]
+        fn file_headers_are_the_only_section_starts_and_appear_in_file_order(
+            file_diffs in proptest::collection::vec(arbitrary_file_diff(), 0..4),
+        ) {
+            let lines = build_tui_lines(&file_diffs, opts_truncating());
+            let starts: Vec<String> = lines
+                .iter()
+                .filter(|l| l.is_section_start)
+                .map(|l| line_text(&l.line))
+                .collect();
+            let expected: Vec<String> =
+                file_diffs.iter().map(|fd| format!("  {}", fd.path)).collect();
+            prop_assert_eq!(starts, expected);
+        }
+
+        #[test]
+        fn context_truncation_hides_only_unchanged_spec_lines(
+            file_diffs in proptest::collection::vec(arbitrary_file_diff(), 0..4),
+        ) {
+            let full =
+                build_tui_lines(&file_diffs, RenderOptions { changed_only: false, full_context: true });
+            let truncated = build_tui_lines(&file_diffs, opts_truncating());
+            let is_kept =
+                |l: &TuiLine| !is_unchanged_spec(l) && !matches!(l.kind, LineKind::Ellipsis);
+            let full_kept: Vec<String> = full
+                .iter()
+                .filter(|l| is_kept(l))
+                .map(|l| line_text(&l.line))
+                .collect();
+            let truncated_kept: Vec<String> = truncated
+                .iter()
+                .filter(|l| is_kept(l))
+                .map(|l| line_text(&l.line))
+                .collect();
+            prop_assert_eq!(truncated_kept, full_kept);
+        }
+
+        #[test]
+        fn context_truncation_conserves_every_unchanged_line_via_ellipsis_counts(
+            file_diffs in proptest::collection::vec(arbitrary_file_diff(), 0..4),
+        ) {
+            let full =
+                build_tui_lines(&file_diffs, RenderOptions { changed_only: false, full_context: true });
+            let truncated = build_tui_lines(&file_diffs, opts_truncating());
+            let unchanged_full = full.iter().filter(|l| is_unchanged_spec(l)).count();
+            let unchanged_truncated = truncated.iter().filter(|l| is_unchanged_spec(l)).count();
+            let hidden: usize = truncated
+                .iter()
+                .filter(|l| matches!(l.kind, LineKind::Ellipsis))
+                .map(|l| ellipsis_hidden(&line_text(&l.line)))
+                .sum();
+            prop_assert_eq!(unchanged_full, unchanged_truncated + hidden);
+        }
     }
 }
