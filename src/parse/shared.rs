@@ -316,6 +316,31 @@ mod tests {
         all_frameworks().iter().find(|f| f.name == "rspec").expect("rspec")
     }
 
+    fn minitest() -> &'static FrameworkDef {
+        all_frameworks()
+            .iter()
+            .find(|f| f.name == "minitest")
+            .expect("minitest")
+    }
+
+    fn pytest() -> &'static FrameworkDef {
+        all_frameworks()
+            .iter()
+            .find(|f| f.name == "pytest")
+            .expect("pytest")
+    }
+
+    fn junit() -> &'static FrameworkDef {
+        all_frameworks()
+            .iter()
+            .find(|f| f.name == "junit")
+            .expect("junit")
+    }
+
+    fn spec_names(specs: &[SpecNode]) -> Vec<&str> {
+        specs.iter().map(|s| s.name.as_str()).collect()
+    }
+
     #[test]
     fn scan_rspec_shared_examples() {
         let source = r#"
@@ -486,6 +511,237 @@ end
         );
         assert_eq!(user.children[0].kind, crate::parse::SpecKind::SharedInclusion);
         assert_eq!(user.children[1].name, "has a name");
+    }
+
+    #[test]
+    fn scan_types_skips_frameworks_with_inheritance_disabled() {
+        let toml_src = r#"
+[[framework]]
+name = "pytest_like_enabled"
+language = "python"
+tree_sitter_crate = "tree-sitter-python"
+
+[framework.ast_kinds]
+function = "function_definition"
+class = "class_definition"
+body_field = "body"
+name_field = "name"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^test_"
+applies_to = "function"
+creates = "spec"
+
+[framework.inheritance]
+enabled = true
+type_node_kinds = ["class_definition"]
+
+[[framework]]
+name = "pytest_like_disabled"
+language = "python"
+tree_sitter_crate = "tree-sitter-python"
+
+[framework.ast_kinds]
+function = "function_definition"
+class = "class_definition"
+body_field = "body"
+name_field = "name"
+
+[[framework.marker]]
+marker_type = "name_pattern"
+pattern = "^test_"
+applies_to = "function"
+creates = "spec"
+
+[framework.inheritance]
+enabled = false
+type_node_kinds = ["class_definition"]
+"#;
+        let file: crate::parse::registry::TomlFile =
+            toml::from_str(toml_src).expect("framework definitions parse");
+        let enabled = &file.framework[0];
+        let disabled = &file.framework[1];
+
+        let source = "class UserTest:\n    def test_creates(self):\n        pass\n";
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, enabled, &mut registry);
+        assert!(
+            registry.get_type("UserTest").is_some(),
+            "enabled twin registers the class, guarding against a vacuous pass"
+        );
+
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, disabled, &mut registry);
+        assert!(
+            registry.get_type("UserTest").is_none(),
+            "inheritance disabled must stop type registration"
+        );
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn scan_minitest_namespaced_class_registers_full_and_tail_names() {
+        let source = r#"
+class Foo::UserTest < Minitest::Test
+  it "works" do
+    assert true
+  end
+end
+"#;
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, minitest(), &mut registry);
+
+        let full = registry
+            .get_type("Foo::UserTest")
+            .expect("full name registered");
+        assert_eq!(spec_names(full), ["works"]);
+        let tail = registry.get_type("UserTest").expect("tail name registered");
+        assert_eq!(spec_names(tail), ["works"]);
+    }
+
+    #[test]
+    fn scan_junit_records_superclass_refs_for_transitive_resolution() {
+        let source = r#"
+class GrandBaseTest {
+    @Test
+    void testGrand() {
+    }
+}
+
+class BaseTest extends GrandBaseTest {
+    @Test
+    void testShared() {
+    }
+}
+
+class UserTest extends BaseTest {
+    @Test
+    void testOwn() {
+    }
+}
+"#;
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, junit(), &mut registry);
+
+        let resolved = registry.resolve_type("UserTest");
+        assert_eq!(
+            spec_names(&resolved),
+            ["Grand", "Shared", "Own"],
+            "superclass refs must chain transitively through the registry"
+        );
+
+        let tree = crate::parse::engine::parse_file_with_shared(
+            source,
+            "tests/UserTest.java",
+            junit(),
+            Some(&registry),
+        )
+        .expect("parsed with shared");
+        let user = tree
+            .root
+            .iter()
+            .find(|n| n.name == "User")
+            .expect("User group");
+        assert_eq!(
+            spec_names(&user.children),
+            ["Grand", "Shared", "Own"],
+            "transitive superclass specs should be inlined when parsing"
+        );
+    }
+
+    #[test]
+    fn scan_pytest_ignores_non_type_superclass_arguments() {
+        let source = r#"
+class BaseTest:
+    def test_shared(self):
+        pass
+
+class UserTest(metaclass=ABCMeta):
+    def helper(self):
+        pass
+"#;
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, pytest(), &mut registry);
+
+        assert!(
+            registry.get_type("BaseTest").is_some(),
+            "plain class registers, guarding against a vacuous pass"
+        );
+        assert!(
+            registry.get_type("UserTest").is_none(),
+            "a metaclass keyword argument is not an inheritance ref"
+        );
+    }
+
+    #[test]
+    fn scan_minitest_only_collects_refs_from_configured_method_calls() {
+        let source = r#"
+module AuthHelper
+  def test_auth
+    assert true
+  end
+end
+
+class User
+  def test_is_user
+    assert true
+  end
+end
+
+class UserTest < Minitest::Test
+  include AuthHelper
+
+  describe User do
+    it "works" do
+      assert true
+    end
+  end
+end
+"#;
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, minitest(), &mut registry);
+
+        let resolved = registry.resolve_type("UserTest");
+        let names = spec_names(&resolved);
+        assert!(
+            names.contains(&"auth"),
+            "include AuthHelper ref should resolve, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"is user"),
+            "describe's argument is not an inheritance ref, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn scan_minitest_ignores_non_constant_include_arguments() {
+        let source = r#"
+class AuthHelper
+  def test_auth
+    assert true
+  end
+end
+
+class SetupTest
+  include build_helper
+end
+
+class RealTest
+  include AuthHelper
+end
+"#;
+        let mut registry = SharedExampleRegistry::default();
+        scan_for_definitions(source, minitest(), &mut registry);
+
+        assert!(
+            registry.get_type("RealTest").is_some(),
+            "constant include arg registers the class, guarding against a vacuous pass"
+        );
+        assert!(
+            registry.get_type("SetupTest").is_none(),
+            "a non-constant include argument is not an inheritance ref"
+        );
     }
 
     proptest::proptest! {
