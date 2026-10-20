@@ -46,10 +46,30 @@ pub fn is_relevant_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::sync::mpsc;
 
     fn event(path: &str, kind: DebouncedEventKind) -> DebouncedEvent {
         DebouncedEvent::new(PathBuf::from(path), kind)
+    }
+
+    fn arbitrary_event() -> impl Strategy<Value = (String, bool)> {
+        ("[a-zA-Z0-9_./-]{0,48}", proptest::bool::ANY)
+    }
+
+    fn events(raw: &[(String, bool)]) -> Vec<DebouncedEvent> {
+        raw.iter()
+            .map(|(path, settled)| {
+                event(
+                    path,
+                    if *settled {
+                        DebouncedEventKind::Any
+                    } else {
+                        DebouncedEventKind::AnyContinuous
+                    },
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -103,5 +123,56 @@ mod tests {
         .expect("watcher");
         std::fs::write(root.join("user_spec.rb"), "RSpec.describe User do\nend\n").expect("write");
         assert!(rx.recv_timeout(Duration::from_secs(10)).is_ok(), "no change signalled");
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn a_batch_is_relevant_iff_either_of_its_two_halves_is_relevant(
+            first in proptest::collection::vec(arbitrary_event(), 0..5),
+            second in proptest::collection::vec(arbitrary_event(), 0..5),
+        ) {
+            let (left, right) = (events(&first), events(&second));
+            let mut combined = left.clone();
+            combined.extend(right.iter().cloned());
+            prop_assert_eq!(
+                is_relevant_batch(&combined),
+                is_relevant_batch(&left) || is_relevant_batch(&right)
+            );
+        }
+
+        #[test]
+        fn a_continuous_only_batch_is_never_relevant(
+            paths in proptest::collection::vec("[a-zA-Z0-9_./-]{0,48}", 0..6),
+        ) {
+            let batch: Vec<DebouncedEvent> =
+                paths.iter().map(|p| event(p, DebouncedEventKind::AnyContinuous)).collect();
+            prop_assert!(!is_relevant_batch(&batch));
+        }
+
+        #[test]
+        fn a_path_under_a_plain_directory_keeps_its_relevance(
+            dir in "[a-z]{1,6}",
+            name in "[a-zA-Z0-9_./-]{0,48}",
+        ) {
+            let nested = Path::new(&dir).join(&name);
+            prop_assert_eq!(is_relevant_path(&nested), is_relevant_path(Path::new(&name)));
+        }
+
+        #[test]
+        fn a_dotted_file_under_a_plain_directory_is_relevant_iff_its_extension_is_watched(
+            dir in "[a-z]{1,6}",
+            stem in "[a-z0-9_]{1,8}",
+            (ext, watched) in proptest::sample::select(vec![
+                ("rb", true), ("rs", true), ("py", true), ("js", true), ("jsx", true),
+                ("ts", true), ("tsx", true), ("go", true), ("exs", true), ("java", true),
+                ("php", true), ("md", false), ("txt", false), ("toml", false), ("css", false),
+                ("lock", false), ("html", false), ("json", false), ("yaml", false), ("log", false),
+            ]),
+        ) {
+            let path = Path::new(&dir).join(format!("{stem}.{ext}"));
+            prop_assert_eq!(is_relevant_path(&path), watched);
+        }
     }
 }
