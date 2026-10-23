@@ -25,7 +25,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
 
@@ -36,6 +36,9 @@ jobs:
       # only gate anything if CI runs them.
       - name: cargo test
         run: cargo test --locked
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
 
       - name: cargo clippy
         run: cargo clippy --locked --all-targets -- -D warnings
