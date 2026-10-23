@@ -1,0 +1,3 @@
+# Width with the smallest one-time reformat. Narrower widths break lines that
+# are already long; wider ones join lines that were wrapped by hand.
+max_width = 155
