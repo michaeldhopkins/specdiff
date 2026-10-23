@@ -41,12 +41,7 @@ impl WatchMode<'_> {
         self.with_source(mb.as_deref(), |source| pipeline::diff_files_fast(source, cli))
     }
 
-    fn compute_diffs_with_registry(
-        &self,
-        state: &mut AppState,
-        cli: &Cli,
-        registry: &SharedExampleRegistry,
-    ) -> Result<Vec<FileDiff>> {
+    fn compute_diffs_with_registry(&self, state: &mut AppState, cli: &Cli, registry: &SharedExampleRegistry) -> Result<Vec<FileDiff>> {
         let mb = self.resolve_merge_base(state);
         self.with_source(mb.as_deref(), |source| pipeline::diff_files_with_registry(source, cli, registry))
     }
@@ -112,10 +107,7 @@ impl WatchMode<'_> {
             WatchMode::Vcs { vcs, base_rev, head_rev } => {
                 let mb = merge_base.unwrap_or(base_rev);
                 let changed = vcs.changed_files(mb, head_rev)?;
-                let test_files: Vec<PathBuf> = changed
-                    .into_iter()
-                    .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
-                    .collect();
+                let test_files: Vec<PathBuf> = changed.into_iter().filter(|f| !parse::registry::frameworks_for_file(f).is_empty()).collect();
                 let source = VcsSource {
                     vcs: *vcs,
                     files: test_files,
@@ -201,10 +193,12 @@ fn run_watch_loop(mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
     })?;
 
     let tick_tx = tx.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(5));
-        if tick_tx.send(AppEvent::Tick).is_err() {
-            break;
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            if tick_tx.send(AppEvent::Tick).is_err() {
+                break;
+            }
         }
     });
 
@@ -236,7 +230,10 @@ fn draw(terminal: &mut DefaultTerminal, state: &mut AppState) -> Result<()> {
     let diffs = visible_diffs(state);
     let opts = state.render_opts();
     let scroll = state.scroll;
-    let mut result = render::RenderResult { section_offsets: vec![], max_scroll: 0 };
+    let mut result = render::RenderResult {
+        section_offsets: vec![],
+        max_scroll: 0,
+    };
     terminal.draw(|frame| {
         result = render::render(frame, &diffs, scroll, opts);
     })?;
@@ -248,13 +245,7 @@ fn draw(terminal: &mut DefaultTerminal, state: &mut AppState) -> Result<()> {
     Ok(())
 }
 
-fn run_event_loop(
-    terminal: &mut DefaultTerminal,
-    state: &mut AppState,
-    rx: &mpsc::Receiver<AppEvent>,
-    mode: &WatchMode<'_>,
-    cli: &Cli,
-) -> Result<()> {
+fn run_event_loop(terminal: &mut DefaultTerminal, state: &mut AppState, rx: &mpsc::Receiver<AppEvent>, mode: &WatchMode<'_>, cli: &Cli) -> Result<()> {
     loop {
         if state.needs_redraw {
             draw(terminal, state)?;
@@ -300,7 +291,11 @@ mod tests {
     }
 
     fn vcs_mode(vcs: &StubVcs) -> WatchMode<'_> {
-        WatchMode::Vcs { vcs, base_rev: "main".into(), head_rev: "HEAD".into() }
+        WatchMode::Vcs {
+            vcs,
+            base_rev: "main".into(),
+            head_rev: "HEAD".into(),
+        }
     }
 
     #[test]
@@ -332,15 +327,24 @@ mod tests {
         assert!(!mode.merge_base_moved(&state));
         state.cached_merge_base = Some("older".into());
         assert!(mode.merge_base_moved(&state));
-        let dirs = WatchMode::Directory { base: "a".into(), head: "b".into() };
+        let dirs = WatchMode::Directory {
+            base: "a".into(),
+            head: "b".into(),
+        };
         assert!(!dirs.merge_base_moved(&state));
     }
 
     #[test]
     fn directory_mode_watches_both_sides_once() {
-        let two = WatchMode::Directory { base: "base".into(), head: "head".into() };
+        let two = WatchMode::Directory {
+            base: "base".into(),
+            head: "head".into(),
+        };
         assert_eq!(two.watch_paths(None), vec![PathBuf::from("head"), PathBuf::from("base")]);
-        let one = WatchMode::Directory { base: "same".into(), head: "same".into() };
+        let one = WatchMode::Directory {
+            base: "same".into(),
+            head: "same".into(),
+        };
         assert_eq!(one.watch_paths(None), vec![PathBuf::from("same")]);
     }
 
@@ -367,8 +371,7 @@ mod tests {
     }
 
     const SHARED: &str = "RSpec.shared_examples \"auditable\" do\n  it \"records the actor\" do\n  end\nend\n";
-    const USES_SHARED: &str =
-        "RSpec.describe User do\n  it_behaves_like \"auditable\"\n  it \"works\" do\n  end\nend\n";
+    const USES_SHARED: &str = "RSpec.describe User do\n  it_behaves_like \"auditable\"\n  it \"works\" do\n  end\nend\n";
 
     struct Dirs {
         _root: tempfile::TempDir,
@@ -390,7 +393,10 @@ mod tests {
     }
 
     fn dir_mode(d: &Dirs) -> WatchMode<'static> {
-        WatchMode::Directory { base: d.base.clone(), head: d.head.clone() }
+        WatchMode::Directory {
+            base: d.base.clone(),
+            head: d.head.clone(),
+        }
     }
 
     fn cli() -> Cli {

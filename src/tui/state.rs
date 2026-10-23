@@ -47,7 +47,10 @@ impl AppState {
     }
 
     pub fn render_opts(&self) -> RenderOptions {
-        RenderOptions { changed_only: self.changed_only, full_context: self.full_context }
+        RenderOptions {
+            changed_only: self.changed_only,
+            full_context: self.full_context,
+        }
     }
 
     pub fn apply(&mut self, action: Action) -> Effect {

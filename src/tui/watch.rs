@@ -1,22 +1,16 @@
 use anyhow::Result;
-use notify_debouncer_mini::{new_debouncer, DebouncedEvent, DebouncedEventKind};
+use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind, new_debouncer};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub fn setup_watcher(
-    paths: Vec<PathBuf>,
-    on_change: impl Fn() + Send + 'static,
-) -> Result<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> {
-    let mut debouncer = new_debouncer(
-        Duration::from_millis(200),
-        move |events: Result<Vec<DebouncedEvent>, notify::Error>| {
-            if let Ok(events) = events
-                && is_relevant_batch(&events)
-            {
-                on_change();
-            }
-        },
-    )?;
+pub fn setup_watcher(paths: Vec<PathBuf>, on_change: impl Fn() + Send + 'static) -> Result<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> {
+    let mut debouncer = new_debouncer(Duration::from_millis(200), move |events: Result<Vec<DebouncedEvent>, notify::Error>| {
+        if let Ok(events) = events
+            && is_relevant_batch(&events)
+        {
+            on_change();
+        }
+    })?;
 
     for path in paths {
         if path.exists() {
@@ -38,9 +32,7 @@ pub fn is_relevant_path(path: &Path) -> bool {
     }
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            matches!(ext, "rb" | "rs" | "py" | "js" | "jsx" | "ts" | "tsx" | "go" | "exs" | "java" | "php")
-        })
+        .is_some_and(|ext| matches!(ext, "rb" | "rs" | "py" | "js" | "jsx" | "ts" | "tsx" | "go" | "exs" | "java" | "php"))
 }
 
 #[cfg(test)]

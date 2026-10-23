@@ -1,10 +1,10 @@
 use crate::diff::types::{DiffKind, DiffNode, FileDiff, Stats};
-use crate::output::truncate::{truncate_unchanged_runs, CONTEXT_HEAD, CONTEXT_TAIL};
+use crate::output::truncate::{CONTEXT_HEAD, CONTEXT_TAIL, truncate_unchanged_runs};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
 
 pub struct RenderResult {
     pub section_offsets: Vec<usize>,
@@ -30,23 +30,12 @@ struct TuiLine {
     is_section_start: bool,
 }
 
-pub fn render(
-    frame: &mut Frame,
-    file_diffs: &[FileDiff],
-    scroll: usize,
-    opts: RenderOptions,
-) -> RenderResult {
+pub fn render(frame: &mut Frame, file_diffs: &[FileDiff], scroll: usize, opts: RenderOptions) -> RenderResult {
     let area = frame.area();
 
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(area);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(1), Constraint::Length(1)]).split(area);
 
-    let header = Paragraph::new(Line::from(header_spans(file_diffs)))
-        .block(Block::default().borders(Borders::BOTTOM));
+    let header = Paragraph::new(Line::from(header_spans(file_diffs))).block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(header, chunks[0]);
 
     let tui_lines = build_tui_lines(file_diffs, opts);
@@ -109,10 +98,7 @@ fn build_tui_lines(file_diffs: &[FileDiff], opts: RenderOptions) -> Vec<TuiLine>
         }
         lines.push(TuiLine {
             kind: LineKind::Other,
-            line: Line::from(Span::styled(
-                format!("  {}", file_diff.path),
-                Style::default().add_modifier(Modifier::BOLD),
-            )),
+            line: Line::from(Span::styled(format!("  {}", file_diff.path), Style::default().add_modifier(Modifier::BOLD))),
             is_section_start: true,
         });
         for node in &file_diff.nodes {
@@ -164,10 +150,7 @@ fn collect_lines(node: &DiffNode, lines: &mut Vec<TuiLine>, depth: usize, change
         DiffKind::Unchanged => ("  ", Style::default().fg(Color::DarkGray)),
     };
 
-    let suffix = node
-        .param_cases
-        .map(|n| format!(" [{n} cases]"))
-        .unwrap_or_default();
+    let suffix = node.param_cases.map(|n| format!(" [{n} cases]")).unwrap_or_default();
 
     let text = match node.kind {
         DiffKind::Renamed => {
@@ -197,7 +180,10 @@ mod tests {
     use proptest::prelude::*;
 
     fn opts_truncating() -> RenderOptions {
-        RenderOptions { changed_only: false, full_context: false }
+        RenderOptions {
+            changed_only: false,
+            full_context: false,
+        }
     }
 
     fn unchanged(name: &str) -> DiffNode {
@@ -259,7 +245,10 @@ mod tests {
 
     #[test]
     fn tui_full_context_preserves_all_lines() {
-        let opts = RenderOptions { changed_only: false, full_context: true };
+        let opts = RenderOptions {
+            changed_only: false,
+            full_context: true,
+        };
         let lines = build_tui_lines(&diffs_with_long_run(), opts);
         let joined: String = lines.iter().map(|l| line_text(&l.line)).collect::<Vec<_>>().join("\n");
         for i in 0..10 {
@@ -270,7 +259,10 @@ mod tests {
 
     #[test]
     fn tui_changed_only_drops_unchanged_no_ellipsis() {
-        let opts = RenderOptions { changed_only: true, full_context: false };
+        let opts = RenderOptions {
+            changed_only: true,
+            full_context: false,
+        };
         let lines = build_tui_lines(&diffs_with_long_run(), opts);
         let joined: String = lines.iter().map(|l| line_text(&l.line)).collect::<Vec<_>>().join("\n");
         for i in 0..10 {
@@ -293,20 +285,18 @@ mod tests {
             },
         ];
         let lines = build_tui_lines(&diffs, opts_truncating());
-        let starts: Vec<String> = lines
-            .iter()
-            .filter(|l| l.is_section_start)
-            .map(|l| line_text(&l.line))
-            .collect();
+        let starts: Vec<String> = lines.iter().filter(|l| l.is_section_start).map(|l| line_text(&l.line)).collect();
         assert_eq!(starts.len(), 2);
         assert!(starts[0].contains("file_a"));
         assert!(starts[1].contains("file_b"));
     }
 
     fn screen(diffs: &[FileDiff], scroll: usize, opts: RenderOptions, width: u16, height: u16) -> (Vec<String>, RenderResult) {
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).expect("a terminal");
-        let mut result = RenderResult { section_offsets: vec![], max_scroll: 0 };
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).expect("a terminal");
+        let mut result = RenderResult {
+            section_offsets: vec![],
+            max_scroll: 0,
+        };
         terminal
             .draw(|frame| {
                 result = render(frame, diffs, scroll, opts);
@@ -347,13 +337,25 @@ mod tests {
                     ..unchanged("User")
                 }],
             },
-            FileDiff { path: "models::post".into(), nodes: vec![unchanged("Post")] },
+            FileDiff {
+                path: "models::post".into(),
+                nodes: vec![unchanged("Post")],
+            },
         ]
     }
 
     #[test]
     fn the_outline_view_shows_stats_files_specs_and_keys() {
-        let (rows, result) = screen(&two_files(), 0, RenderOptions { changed_only: false, full_context: true }, 60, 16);
+        let (rows, result) = screen(
+            &two_files(),
+            0,
+            RenderOptions {
+                changed_only: false,
+                full_context: true,
+            },
+            60,
+            16,
+        );
         assert_eq!(rows[0], "specdiff  +1 -1 ~>1");
         assert!(rows[1].is_empty());
         assert!(rows[2].chars().all(|c| c == '─'), "header rule: {:?}", rows[2]);
@@ -371,7 +373,10 @@ mod tests {
 
     #[test]
     fn the_header_leaves_out_renames_when_there_are_none() {
-        let diffs = vec![FileDiff { path: "models::user".into(), nodes: vec![added("new")] }];
+        let diffs = vec![FileDiff {
+            path: "models::user".into(),
+            nodes: vec![added("new")],
+        }];
         let (rows, _) = screen(&diffs, 0, opts_truncating(), 60, 8);
         assert_eq!(rows[0], "specdiff  +1 -0");
     }
@@ -386,7 +391,16 @@ mod tests {
 
     #[test]
     fn the_changed_only_view_drops_unchanged_files_and_specs() {
-        let (rows, result) = screen(&two_files(), 0, RenderOptions { changed_only: true, full_context: false }, 60, 12);
+        let (rows, result) = screen(
+            &two_files(),
+            0,
+            RenderOptions {
+                changed_only: true,
+                full_context: false,
+            },
+            60,
+            12,
+        );
         let body = rows[3..11].join("\n");
         assert!(body.contains("validates uniqueness"));
         assert!(!body.contains("validates email"));
@@ -396,7 +410,10 @@ mod tests {
 
     #[test]
     fn a_scrolled_view_starts_at_the_scroll_offset_and_reports_how_far_it_can_go() {
-        let opts = RenderOptions { changed_only: false, full_context: true };
+        let opts = RenderOptions {
+            changed_only: false,
+            full_context: true,
+        };
         let (rows, result) = screen(&two_files(), 7, opts, 60, 7);
         assert_eq!(result.max_scroll, 7);
         assert_eq!(rows[3], "  models::post");
@@ -448,18 +465,11 @@ mod tests {
     }
 
     fn arbitrary_file_diff() -> impl Strategy<Value = FileDiff> {
-        (
-            "[a-z]{1,8}(::[a-z]{1,8}){0,2}",
-            proptest::collection::vec(arbitrary_diff_node(), 0..4),
-        )
-            .prop_map(|(path, nodes)| FileDiff { path, nodes })
+        ("[a-z]{1,8}(::[a-z]{1,8}){0,2}", proptest::collection::vec(arbitrary_diff_node(), 0..4)).prop_map(|(path, nodes)| FileDiff { path, nodes })
     }
 
     fn count_nodes(nodes: &[DiffNode]) -> usize {
-        nodes
-            .iter()
-            .map(|node| 1 + count_nodes(&node.children))
-            .sum()
+        nodes.iter().map(|node| 1 + count_nodes(&node.children)).sum()
     }
 
     fn is_unchanged_spec(item: &TuiLine) -> bool {
@@ -467,13 +477,9 @@ mod tests {
     }
 
     fn ellipsis_hidden(text: &str) -> usize {
-        let open = text
-            .rfind('(')
-            .expect("ellipsis lines report a count in parentheses");
+        let open = text.rfind('(').expect("ellipsis lines report a count in parentheses");
         let rest = &text[open + 1..];
-        let end = rest
-            .find(' ')
-            .expect("ellipsis count is followed by ' hidden'");
+        let end = rest.find(' ').expect("ellipsis count is followed by ' hidden'");
         rest[..end].parse().expect("ellipsis count is a number")
     }
 

@@ -42,15 +42,11 @@ fn run_vcs_diff(cli: &cli::Cli) -> Result<()> {
     let base_rev = cli.base.clone().unwrap_or_else(|| vcs.default_base_rev());
     let head_rev = cli.head.clone().unwrap_or_else(|| vcs.default_head_rev().to_string());
 
-    let merge_base = vcs.merge_base(&base_rev, &head_rev)
-        .unwrap_or_else(|_| base_rev.clone());
+    let merge_base = vcs.merge_base(&base_rev, &head_rev).unwrap_or_else(|_| base_rev.clone());
 
     let changed = vcs.changed_files(&merge_base, &head_rev)?;
 
-    let test_files: Vec<PathBuf> = changed
-        .into_iter()
-        .filter(|f| !parse::registry::frameworks_for_file(f).is_empty())
-        .collect();
+    let test_files: Vec<PathBuf> = changed.into_iter().filter(|f| !parse::registry::frameworks_for_file(f).is_empty()).collect();
 
     if test_files.is_empty() {
         eprintln!("No test file changes detected on {branch}.");
@@ -87,8 +83,7 @@ fn render_output(file_diffs: &[diff::types::FileDiff], cli: &cli::Cli) -> Result
 
     let output_str = match cli.format {
         cli::OutputFormat::Tree => output::format_tree(&file_diffs, cli.tree_options()),
-        cli::OutputFormat::Json => output::format_json(&file_diffs)
-            .context("failed to serialize JSON")?,
+        cli::OutputFormat::Json => output::format_json(&file_diffs).context("failed to serialize JSON")?,
         cli::OutputFormat::Compact => output::format_compact(&file_diffs),
     };
 

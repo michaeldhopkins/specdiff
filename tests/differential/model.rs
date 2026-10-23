@@ -132,8 +132,7 @@ pub fn load_known(text: &str) -> Vec<Known> {
             Known {
                 class: field("class"),
                 family: field("family"),
-                side: Side::parse(&field("side"))
-                    .unwrap_or_else(|| panic!("known.toml: side must be `missing` or `extra` in {entry}")),
+                side: Side::parse(&field("side")).unwrap_or_else(|| panic!("known.toml: side must be `missing` or `extra` in {entry}")),
                 pattern: glob::Pattern::new(&field("match")).unwrap_or_else(|e| panic!("known.toml: bad glob: {e}")),
                 reason,
             }
@@ -144,9 +143,7 @@ pub fn load_known(text: &str) -> Vec<Known> {
 /// The class a difference belongs to: the first known entry that matches it, or `None` when
 /// nothing explains it.
 pub fn classify<'a>(family: &str, diff: &Difference, known: &'a [Known]) -> Option<&'a Known> {
-    known
-        .iter()
-        .find(|k| k.family == family && k.side == diff.side && k.pattern.matches(&diff.key))
+    known.iter().find(|k| k.family == family && k.side == diff.side && k.pattern.matches(&diff.key))
 }
 
 #[derive(Debug, Default)]
@@ -203,7 +200,11 @@ mod tests {
     use super::*;
 
     fn id(file: &str, path: &[&str], cases: Option<usize>) -> TestId {
-        TestId { file: file.into(), path: path.iter().map(|s| (*s).to_string()).collect(), cases }
+        TestId {
+            file: file.into(),
+            path: path.iter().map(|s| (*s).to_string()).collect(),
+            cases,
+        }
     }
 
     #[test]
@@ -240,11 +241,15 @@ mod tests {
 
     #[test]
     fn a_difference_is_explained_only_by_its_family_and_side() {
-        let known = load_known(
-            "[[known]]\nclass = \"c\"\nfamily = \"go\"\nside = \"extra\"\nmatch = \"* > * > *\"\nreason = \"r\"\n",
-        );
-        let extra = Difference { side: Side::ExtraInSpecdiff, key: "p > T > sub".into() };
-        let missing = Difference { side: Side::MissingInSpecdiff, key: "p > T > sub".into() };
+        let known = load_known("[[known]]\nclass = \"c\"\nfamily = \"go\"\nside = \"extra\"\nmatch = \"* > * > *\"\nreason = \"r\"\n");
+        let extra = Difference {
+            side: Side::ExtraInSpecdiff,
+            key: "p > T > sub".into(),
+        };
+        let missing = Difference {
+            side: Side::MissingInSpecdiff,
+            key: "p > T > sub".into(),
+        };
         assert!(classify("go", &extra, &known).is_some());
         assert!(classify("go", &missing, &known).is_none());
         assert!(classify("pytest", &extra, &known).is_none());

@@ -29,10 +29,7 @@ impl FileSource for DirectorySource {
     fn list_files(&self) -> Result<Vec<String>> {
         let base_files = collect_test_files(&self.base)?;
         let head_files = collect_test_files(&self.head)?;
-        let all: std::collections::BTreeSet<String> = base_files
-            .into_iter()
-            .chain(head_files)
-            .collect();
+        let all: std::collections::BTreeSet<String> = base_files.into_iter().chain(head_files).collect();
         Ok(all.into_iter().collect())
     }
 
@@ -45,8 +42,7 @@ impl FileSource for DirectorySource {
     }
 
     fn list_shared_files(&self, glob_pattern: &str) -> Result<Vec<String>> {
-        let pat = glob::Pattern::new(glob_pattern)
-            .map_err(|e| anyhow::anyhow!("invalid glob: {e}"))?;
+        let pat = glob::Pattern::new(glob_pattern).map_err(|e| anyhow::anyhow!("invalid glob: {e}"))?;
         let mut files = std::collections::BTreeSet::new();
         for dir in [&self.base, &self.head] {
             collect_all_files_recursive(dir, dir, &pat, &mut files);
@@ -73,12 +69,7 @@ impl FileSource for DirectorySource {
     }
 }
 
-fn collect_all_files_recursive(
-    root: &Path,
-    dir: &Path,
-    pattern: &glob::Pattern,
-    files: &mut std::collections::BTreeSet<String>,
-) {
+fn collect_all_files_recursive(root: &Path, dir: &Path, pattern: &glob::Pattern, files: &mut std::collections::BTreeSet<String>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -117,7 +108,8 @@ impl FileSource for VcsSource<'_> {
     }
 
     fn list_shared_files(&self, glob_pattern: &str) -> Result<Vec<String>> {
-        self.vcs.files_matching(glob_pattern)
+        self.vcs
+            .files_matching(glob_pattern)
             .map(|files| files.into_iter().map(|p| p.to_string_lossy().into_owned()).collect())
     }
 
@@ -157,10 +149,7 @@ pub fn diff_files(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDiff>> {
             build_shared_registry(source, &all_scannable, cli, |s, path| s.read_head(path)),
         )
     } else {
-        (
-            parse::shared::SharedExampleRegistry::default(),
-            parse::shared::SharedExampleRegistry::default(),
-        )
+        (parse::shared::SharedExampleRegistry::default(), parse::shared::SharedExampleRegistry::default())
     };
 
     diff_with_registries(source, &all_paths, cli, &base_registry, &head_registry)
@@ -172,11 +161,7 @@ pub fn diff_files_fast(source: &dyn FileSource, cli: &Cli) -> Result<Vec<FileDif
     diff_with_registries(source, &all_paths, cli, &empty, &empty)
 }
 
-pub fn diff_files_with_registry(
-    source: &dyn FileSource,
-    cli: &Cli,
-    registry: &SharedExampleRegistry,
-) -> Result<Vec<FileDiff>> {
+pub fn diff_files_with_registry(source: &dyn FileSource, cli: &Cli, registry: &SharedExampleRegistry) -> Result<Vec<FileDiff>> {
     let all_paths = source.list_files()?;
     diff_with_registries(source, &all_paths, cli, registry, registry)
 }
@@ -218,9 +203,13 @@ fn diff_with_registries(
             frameworks.first().copied()
         }?;
 
-        let base_tree = fc.base.as_deref()
+        let base_tree = fc
+            .base
+            .as_deref()
             .and_then(|s| parse::engine::parse_file_with_shared(s, &fc.rel_path, framework, base_shared));
-        let head_tree = fc.head.as_deref()
+        let head_tree = fc
+            .head
+            .as_deref()
             .and_then(|s| parse::engine::parse_file_with_shared(s, &fc.rel_path, framework, head_shared));
 
         let base_nodes = base_tree.map(|t| t.root).unwrap_or_default();
@@ -243,20 +232,16 @@ fn diff_with_registries(
     Ok(file_diffs)
 }
 
-pub fn changed_files_need_shared_scan(
-    all_paths: &[String],
-    source: &dyn FileSource,
-    cli: &Cli,
-) -> bool {
+pub fn changed_files_need_shared_scan(all_paths: &[String], source: &dyn FileSource, cli: &Cli) -> bool {
     let shared_keywords: &[&str] = &[
-        "include_examples", "include_context",
-        "it_behaves_like", "it_should_behave_like",
-        "shared_examples", "shared_context",
+        "include_examples",
+        "include_context",
+        "it_behaves_like",
+        "it_should_behave_like",
+        "shared_examples",
+        "shared_context",
     ];
-    let inheritance_keywords: &[&str] = &[
-        "extends", "include ", "extend ",
-        "(Base", "(Test",
-    ];
+    let inheritance_keywords: &[&str] = &["extends", "include ", "extend ", "(Base", "(Test"];
 
     for rel_path in all_paths {
         let frameworks = parse::registry::frameworks_for_file(Path::new(rel_path));
@@ -275,14 +260,10 @@ pub fn changed_files_need_shared_scan(
 
         for read_fn in [FileSource::read_head, FileSource::read_base] {
             if let Some(content) = read_fn(source, rel_path) {
-                if has_shared
-                    && shared_keywords.iter().any(|kw| content.contains(kw))
-                {
+                if has_shared && shared_keywords.iter().any(|kw| content.contains(kw)) {
                     return true;
                 }
-                if has_inheritance
-                    && inheritance_keywords.iter().any(|kw| content.contains(kw))
-                {
+                if has_inheritance && inheritance_keywords.iter().any(|kw| content.contains(kw)) {
                     return true;
                 }
             }
@@ -319,15 +300,11 @@ pub fn build_shared_registry(
 
         framework_by_name.insert(fw.name.as_str(), fw);
 
-        let scan_spec_files = has_shared_definitions
-            && fw.shared.as_ref().is_some_and(|s| s.scan_spec_files_for_definitions);
+        let scan_spec_files = has_shared_definitions && fw.shared.as_ref().is_some_and(|s| s.scan_spec_files_for_definitions);
 
         if scan_spec_files || scans_types {
             for rel_path in all_paths {
-                if parse::registry::frameworks_for_file(Path::new(rel_path))
-                    .iter()
-                    .any(|f| f.name == fw.name)
-                {
+                if parse::registry::frameworks_for_file(Path::new(rel_path)).iter().any(|f| f.name == fw.name) {
                     scan_paths.insert((rel_path.clone(), fw.name.as_str()));
                 }
             }
@@ -384,9 +361,7 @@ fn collect_test_files(dir: &Path) -> Result<Vec<String>> {
 }
 
 fn collect_files_recursive(root: &Path, dir: &Path, files: &mut Vec<String>) -> Result<()> {
-    for entry in std::fs::read_dir(dir)
-        .map_err(|e| anyhow::anyhow!("reading {}: {e}", dir.display()))?
-    {
+    for entry in std::fs::read_dir(dir).map_err(|e| anyhow::anyhow!("reading {}: {e}", dir.display()))? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
@@ -479,9 +454,7 @@ mod tests {
         };
         let cli = default_cli();
         let paths = source.list_files().expect("list");
-        assert!(
-            changed_files_need_shared_scan(&paths, &source, &cli),
-        );
+        assert!(changed_files_need_shared_scan(&paths, &source, &cli),);
     }
 
     #[test]
@@ -503,10 +476,7 @@ mod tests {
     #[test]
     fn skip_shared_scan_for_plain_python() {
         let source = MockSource {
-            files: vec![(
-                "tests/test_user.py".into(),
-                "class TestUser:\n    def test_foo(self):\n        pass\n".into(),
-            )],
+            files: vec![("tests/test_user.py".into(), "class TestUser:\n    def test_foo(self):\n        pass\n".into())],
         };
         let cli = default_cli();
         let paths = source.list_files().expect("list");
@@ -519,10 +489,7 @@ mod tests {
     #[test]
     fn skip_shared_scan_for_rust_files() {
         let source = MockSource {
-            files: vec![(
-                "src/lib.rs".into(),
-                "#[cfg(test)]\nmod tests {\n    #[test]\n    fn test_foo() {}\n}\n".into(),
-            )],
+            files: vec![("src/lib.rs".into(), "#[cfg(test)]\nmod tests {\n    #[test]\n    fn test_foo() {}\n}\n".into())],
         };
         let cli = default_cli();
         let paths = source.list_files().expect("list");
@@ -552,7 +519,10 @@ mod tests {
                 ("spec/models/user_spec.rb".into(), "RSpec.describe User do\n  it \"a\" do\n  end\nend\n".into()),
                 ("spec/models/post_spec.rb".into(), "RSpec.describe Post do\n  it \"b\" do\n  end\nend\n".into()),
                 ("spec/models/tag_spec.rb".into(), "RSpec.describe Tag do\n  it \"c\" do\n  end\nend\n".into()),
-                ("spec/models/comment_spec.rb".into(), "RSpec.describe Comment do\n  it \"d\" do\n  end\nend\n".into()),
+                (
+                    "spec/models/comment_spec.rb".into(),
+                    "RSpec.describe Comment do\n  it \"d\" do\n  end\nend\n".into(),
+                ),
                 ("spec/models/like_spec.rb".into(), "RSpec.describe Like do\n  it \"e\" do\n  end\nend\n".into()),
             ],
         };
@@ -579,9 +549,7 @@ mod tests {
         let diffs = diff_files_fast(&source, &cli).expect("fast");
         assert_eq!(diffs.len(), 1);
         let user = &diffs[0];
-        let has_placeholder = user.nodes.iter().any(|n| {
-            n.children.iter().any(|c| c.name.contains('\u{2026}'))
-        });
+        let has_placeholder = user.nodes.iter().any(|n| n.children.iter().any(|c| c.name.contains('\u{2026}')));
         assert!(has_placeholder, "fast path should produce placeholder for shared inclusion");
     }
 
@@ -601,10 +569,7 @@ mod tests {
         };
         let cli = default_cli();
         let diffs = diff_files(&source, &cli).expect("diff_files");
-        assert_eq!(
-            diffs.len(), 2,
-            "both files are head-only (no base), so both should appear as added"
-        );
+        assert_eq!(diffs.len(), 2, "both files are head-only (no base), so both should appear as added");
 
         for d in &diffs {
             assert!(
@@ -635,10 +600,7 @@ mod tests {
         let source = IdenticalSource(content);
         let cli = default_cli();
         let diffs = diff_files(&source, &cli).expect("diff_files");
-        assert!(
-            diffs.is_empty(),
-            "identical base and head should produce no file diffs"
-        );
+        assert!(diffs.is_empty(), "identical base and head should produce no file diffs");
     }
 
     #[test]
@@ -646,7 +608,10 @@ mod tests {
         let base = "RSpec.describe User do\n  it \"works\" do\n    x = 1\n  end\nend\n";
         let head = "RSpec.describe User do\n  it \"works\" do\n    x = 2\n  end\nend\n";
 
-        struct DiffSource { base: String, head: String }
+        struct DiffSource {
+            base: String,
+            head: String,
+        }
         impl FileSource for DiffSource {
             fn list_files(&self) -> Result<Vec<String>> {
                 Ok(vec!["spec/models/user_spec.rb".into()])
@@ -659,13 +624,13 @@ mod tests {
             }
         }
 
-        let source = DiffSource { base: base.into(), head: head.into() };
+        let source = DiffSource {
+            base: base.into(),
+            head: head.into(),
+        };
         let cli = default_cli();
         let diffs = diff_files(&source, &cli).expect("diff_files");
-        assert!(
-            diffs.is_empty(),
-            "file where spec names are identical should not appear in output"
-        );
+        assert!(diffs.is_empty(), "file where spec names are identical should not appear in output");
     }
 
     struct MapSource {
@@ -708,15 +673,17 @@ mod tests {
     }
 
     fn cli_for(framework: Option<&str>) -> Cli {
-        Cli { framework: framework.map(String::from), ..default_cli() }
+        Cli {
+            framework: framework.map(String::from),
+            ..default_cli()
+        }
     }
 
     fn head_registry(source: &MapSource, framework: Option<&str>) -> SharedExampleRegistry {
         build_shared_registry(source, &source.paths(), &cli_for(framework), |s, p| s.read_head(p))
     }
 
-    const RSPEC_SHARED: &str =
-        "RSpec.shared_examples \"auditable\" do\n  it \"records the actor\" do\n  end\nend\n";
+    const RSPEC_SHARED: &str = "RSpec.shared_examples \"auditable\" do\n  it \"records the actor\" do\n  end\nend\n";
     const PYTEST_BASE: &str = "class BaseTest:\n    def test_inherited(self):\n        pass\n";
 
     #[test]
@@ -728,10 +695,7 @@ mod tests {
 
     #[test]
     fn registry_holds_rspec_shared_examples_and_python_base_classes() {
-        let source = MapSource::head_only(&[
-            ("spec/models/audit_spec.rb", RSPEC_SHARED),
-            ("tests/test_base.py", PYTEST_BASE),
-        ]);
+        let source = MapSource::head_only(&[("spec/models/audit_spec.rb", RSPEC_SHARED), ("tests/test_base.py", PYTEST_BASE)]);
         let registry = head_registry(&source, None);
         let shared = registry.get("auditable").expect("rspec shared examples");
         assert_eq!(shared.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["records the actor"]);
@@ -741,10 +705,7 @@ mod tests {
 
     #[test]
     fn forced_framework_limits_the_registry_to_that_framework() {
-        let source = MapSource::head_only(&[
-            ("spec/models/audit_spec.rb", RSPEC_SHARED),
-            ("tests/test_base.py", PYTEST_BASE),
-        ]);
+        let source = MapSource::head_only(&[("spec/models/audit_spec.rb", RSPEC_SHARED), ("tests/test_base.py", PYTEST_BASE)]);
         let rspec = head_registry(&source, Some("rspec"));
         assert!(rspec.get("auditable").is_some());
         assert!(rspec.get_type("BaseTest").is_none());
@@ -770,10 +731,9 @@ mod tests {
     #[test]
     fn base_and_head_registries_read_their_own_side() {
         let mut source = MapSource::head_only(&[("spec/models/audit_spec.rb", RSPEC_SHARED)]);
-        source.base.insert(
-            "spec/models/audit_spec.rb".into(),
-            RSPEC_SHARED.replace("auditable", "logged"),
-        );
+        source
+            .base
+            .insert("spec/models/audit_spec.rb".into(), RSPEC_SHARED.replace("auditable", "logged"));
         let paths = source.paths();
         let cli = default_cli();
         let base = build_shared_registry(&source, &paths, &cli, |s, p| s.read_base(p));
@@ -791,10 +751,7 @@ mod tests {
 
     #[test]
     fn forced_framework_decides_which_changed_files_are_outlined() {
-        let source = MapSource::head_only(&[(
-            "spec/models/user_spec.rb",
-            "RSpec.describe User do\n  it \"works\" do\n  end\nend\n",
-        )]);
+        let source = MapSource::head_only(&[("spec/models/user_spec.rb", "RSpec.describe User do\n  it \"works\" do\n  end\nend\n")]);
         let as_rspec = diff_files(&source, &cli_for(Some("rspec"))).expect("rspec");
         assert_eq!(as_rspec.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), vec!["models::user"]);
         let as_pytest = diff_files(&source, &cli_for(Some("pytest"))).expect("pytest");

@@ -6,8 +6,7 @@
 mod pty;
 
 const USER_BASE: &str = "RSpec.describe User do\n  it \"validates email\" do\n  end\nend\n";
-const USER_HEAD: &str =
-    "RSpec.describe User do\n  it \"validates email\" do\n  end\n  it \"validates uniqueness\" do\n  end\nend\n";
+const USER_HEAD: &str = "RSpec.describe User do\n  it \"validates email\" do\n  end\n  it \"validates uniqueness\" do\n  end\nend\n";
 
 fn world() -> pty::World {
     let world = pty::World::new();
@@ -93,10 +92,7 @@ fn interactive_mode_prints_when_stdout_is_piped() {
 #[test]
 fn vcs_mode_in_a_git_repo_shows_the_branch_and_runs_no_program() {
     let world = pty::World::new();
-    let repo = world.git_repo(
-        &[("spec/models/user_spec.rb", USER_BASE)],
-        &[("spec/models/user_spec.rb", USER_HEAD)],
-    );
+    let repo = world.git_repo(&[("spec/models/user_spec.rb", USER_BASE)], &[("spec/models/user_spec.rb", USER_HEAD)]);
     let mut tui = world.tui_in(&repo, &[]);
     tui.wait_for_text("validates uniqueness");
     assert!(tui.screen().contains("specdiff  +1 -0"));

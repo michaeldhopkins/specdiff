@@ -22,8 +22,7 @@ const POLL: Duration = Duration::from_millis(20);
 
 pub fn programs() -> Vec<String> {
     let manifest: toml::Value =
-        toml::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/tui.toml")).expect("tui.toml"))
-            .expect("tui.toml parses");
+        toml::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/tui.toml")).expect("tui.toml")).expect("tui.toml parses");
     manifest["programs"]
         .as_array()
         .expect("programs")
@@ -147,7 +146,12 @@ pub struct Tui {
 impl Tui {
     pub fn spawn(args: &[String], env: &[(String, String)], cwd: &Path) -> Self {
         let pair = native_pty_system()
-            .openpty(PtySize { rows: ROWS, cols: COLS, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                rows: ROWS,
+                cols: COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .expect("a pty");
         let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_specdiff"));
         cmd.env_clear();
@@ -212,7 +216,12 @@ impl Tui {
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.drain();
         self.master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .expect("a resize");
         self.parser.set_size(rows, cols);
     }

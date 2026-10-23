@@ -4,9 +4,7 @@ suppressions = 7
 fuzz_check_uploaded_binaries = true
 
 [rust_pinned]
-"src/diff/mod.rs" = 405
-"src/parse/engine.rs" = 1350
-"src/pipeline.rs" = 403
+"src/parse/engine.rs" = 1235
 
 [pinned_thresholds]
 "cognitive-complexity-threshold" = 30

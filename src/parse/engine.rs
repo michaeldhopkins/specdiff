@@ -7,12 +7,7 @@ pub fn parse_file(source: &str, path: &str, framework: &FrameworkDef) -> Option<
     parse_file_with_shared(source, path, framework, None)
 }
 
-pub fn parse_file_with_shared(
-    source: &str,
-    path: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Option<SpecTree> {
+pub fn parse_file_with_shared(source: &str, path: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Option<SpecTree> {
     let mut parser = Parser::new();
     let language = language_for_framework(framework)?;
     parser.set_language(&language).ok()?;
@@ -51,18 +46,17 @@ pub fn parse_children(node: Node, source: &str, framework: &FrameworkDef) -> Vec
     parse_children_with_shared(node, source, framework, None)
 }
 
-pub fn parse_children_with_shared(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Vec<SpecNode> {
+pub fn parse_children_with_shared(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Vec<SpecNode> {
     let mut results = Vec::new();
     let mut cursor = node.walk();
 
     for child in node.children(&mut cursor) {
         if is_inert_container(child, framework) {
-            results.extend(parse_children_with_shared(child, source, framework, shared).into_iter().filter(|n| n.kind == SpecKind::Group));
+            results.extend(
+                parse_children_with_shared(child, source, framework, shared)
+                    .into_iter()
+                    .filter(|n| n.kind == SpecKind::Group),
+            );
         } else if let Some(nodes) = try_match_inclusion(child, source, framework, shared) {
             results.extend(nodes);
         } else if let Some(spec_node) = try_match_node(child, source, framework, shared) {
@@ -84,12 +78,7 @@ fn is_inert_container(node: Node, framework: &FrameworkDef) -> bool {
         .is_some_and(|inh| inh.inert_containers.iter().any(|k| k == node.kind()))
 }
 
-fn try_match_node(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Option<SpecNode> {
+fn try_match_node(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Option<SpecNode> {
     if let Some(result) = try_match_dsl_node(node, source, framework, shared) {
         return Some(result);
     }
@@ -116,12 +105,7 @@ fn try_match_node(
 //   * Only spec NAMES whose source string had real interpolation get
 //     substituted (tracked via SpecNode::name_is_dynamic). A literal
 //     `#{var}` typed inside a single-quoted string is left alone.
-fn try_expand_loop(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Option<Vec<SpecNode>> {
+fn try_expand_loop(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Option<Vec<SpecNode>> {
     let loop_def = framework.loop_expansion.as_ref()?;
     if !loop_def.enabled || loop_def.each_method.is_empty() {
         return None;
@@ -136,11 +120,7 @@ fn try_expand_loop(
     }
 
     let receiver = node.child_by_field_name("receiver")?;
-    if !loop_def
-        .literal_receiver_kinds
-        .iter()
-        .any(|k| k == receiver.kind())
-    {
+    if !loop_def.literal_receiver_kinds.iter().any(|k| k == receiver.kind()) {
         return None;
     }
 
@@ -162,18 +142,11 @@ fn try_expand_loop(
     }
 
     let scope_assignments = collect_in_scope_assignments(node, source);
-    let loop_placeholders: Vec<String> = params
-        .iter()
-        .map(|p| format!("#{{{p}}}"))
-        .collect();
+    let loop_placeholders: Vec<String> = params.iter().map(|p| format!("#{{{p}}}")).collect();
 
     let mut expanded = Vec::with_capacity(tuples.len() * base_specs.len());
     for tuple in &tuples {
-        let mut subs: Vec<(String, String)> = loop_placeholders
-            .iter()
-            .zip(tuple.iter())
-            .map(|(p, v)| (p.clone(), v.clone()))
-            .collect();
+        let mut subs: Vec<(String, String)> = loop_placeholders.iter().zip(tuple.iter()).map(|(p, v)| (p.clone(), v.clone())).collect();
         subs.extend(scope_assignments.iter().cloned());
         for spec in &base_specs {
             expanded.push(substitute_spec_name(spec, &subs));
@@ -224,8 +197,7 @@ fn extract_literal_tuples(receiver: Node, source: &str) -> Vec<Vec<String>> {
     for child in receiver.children(&mut cursor) {
         let tuple = match child.kind() {
             "pair" => extract_pair_values(child, source),
-            "array" => Some(extract_literal_tuples(child, source).into_iter().flatten().collect::<Vec<_>>())
-                .filter(|flat| !flat.is_empty()),
+            "array" => Some(extract_literal_tuples(child, source).into_iter().flatten().collect::<Vec<_>>()).filter(|flat| !flat.is_empty()),
             _ => literal_atom_text(child, source).map(|text| vec![text]),
         };
         tuples.extend(tuple);
@@ -281,23 +253,14 @@ fn substitute_spec_name(spec: &SpecNode, subs: &[(String, String)]) -> SpecNode 
     SpecNode {
         name: new_name,
         kind: spec.kind.clone(),
-        children: spec
-            .children
-            .iter()
-            .map(|c| substitute_spec_name(c, subs))
-            .collect(),
+        children: spec.children.iter().map(|c| substitute_spec_name(c, subs)).collect(),
         line: spec.line,
         parameterized: spec.parameterized.clone(),
         name_is_dynamic: spec.name_is_dynamic,
     }
 }
 
-fn try_match_inclusion(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Option<Vec<SpecNode>> {
+fn try_match_inclusion(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Option<Vec<SpecNode>> {
     let shared_def = framework.shared.as_ref()?;
 
     if !is_dsl_call_kind(node.kind()) {
@@ -314,22 +277,13 @@ fn try_match_inclusion(
             continue;
         }
 
-        let name = extract_name(
-            node,
-            source,
-            &inclusion.name_source,
-            inclusion.name_source_type.as_deref(),
-        )?;
+        let name = extract_name(node, source, &inclusion.name_source, inclusion.name_source_type.as_deref())?;
 
         let name_is_dynamic = name_source_is_dynamic(node, &inclusion.name_source);
 
         let Some(registry) = shared else {
             let display = match inclusion.nesting.as_deref() {
-                Some("nested") => inclusion
-                    .nested_name_template
-                    .as_deref()
-                    .unwrap_or("{name}")
-                    .replace("{name}", &name),
+                Some("nested") => inclusion.nested_name_template.as_deref().unwrap_or("{name}").replace("{name}", &name),
                 _ => name,
             };
             return Some(vec![SpecNode {
@@ -346,11 +300,7 @@ fn try_match_inclusion(
 
         match inclusion.nesting.as_deref() {
             Some("nested") => {
-                let group_name = inclusion
-                    .nested_name_template
-                    .as_deref()
-                    .unwrap_or("{name}")
-                    .replace("{name}", &name);
+                let group_name = inclusion.nested_name_template.as_deref().unwrap_or("{name}").replace("{name}", &name);
                 return Some(vec![SpecNode {
                     name: group_name,
                     kind: SpecKind::Group,
@@ -369,12 +319,7 @@ fn try_match_inclusion(
     None
 }
 
-fn try_match_dsl_node(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Option<SpecNode> {
+fn try_match_dsl_node(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Option<SpecNode> {
     if !is_dsl_call_kind(node.kind()) {
         return None;
     }
@@ -405,14 +350,13 @@ fn try_match_dsl_node(
 
     for spec_def in &framework.spec {
         if spec_def.ast_type == node.kind() && spec_def.method_names.contains(&method_name) {
-            let name = extract_name(node, source, &spec_def.name_source, spec_def.name_source_type.as_deref())
-                .or_else(|| {
-                    if spec_def.allow_anonymous {
-                        Some(format!("anonymous spec at line {}", node.start_position().row + 1))
-                    } else {
-                        None
-                    }
-                });
+            let name = extract_name(node, source, &spec_def.name_source, spec_def.name_source_type.as_deref()).or_else(|| {
+                if spec_def.allow_anonymous {
+                    Some(format!("anonymous spec at line {}", node.start_position().row + 1))
+                } else {
+                    None
+                }
+            });
             if let Some(name) = name {
                 return Some(SpecNode {
                     name,
@@ -489,12 +433,7 @@ fn base_object(node: Node) -> Option<Node> {
     }
 }
 
-pub fn extract_name(
-    node: Node,
-    source: &str,
-    name_source: &str,
-    name_source_type: Option<&str>,
-) -> Option<String> {
+pub fn extract_name(node: Node, source: &str, name_source: &str, name_source_type: Option<&str>) -> Option<String> {
     match name_source {
         "first_argument" => {
             let args = find_arguments(node)?;
@@ -574,16 +513,12 @@ pub fn find_block(node: Node) -> Option<Node> {
 }
 
 pub(crate) fn string_node_has_interpolation(node: Node) -> bool {
-    if !matches!(
-        node.kind(),
-        "string" | "string_literal" | "interpreted_string_literal" | "encapsed_string"
-    ) {
+    if !matches!(node.kind(), "string" | "string_literal" | "interpreted_string_literal" | "encapsed_string") {
         return false;
     }
     let mut cursor = node.walk();
-    node.children(&mut cursor).any(|c| {
-        matches!(c.kind(), "interpolation" | "template_substitution" | "variable_name")
-    })
+    node.children(&mut cursor)
+        .any(|c| matches!(c.kind(), "interpolation" | "template_substitution" | "variable_name"))
 }
 
 fn extract_string_content(node: Node, source: &str) -> Option<String> {
@@ -595,10 +530,7 @@ fn extract_string_content(node: Node, source: &str) -> Option<String> {
                 let mut cursor = node.walk();
                 for c in node.children(&mut cursor) {
                     match c.kind() {
-                        "string_content"
-                        | "string_fragment"
-                        | "interpreted_string_literal_content"
-                        | "quoted_content" => content_children.push(c),
+                        "string_content" | "string_fragment" | "interpreted_string_literal_content" | "quoted_content" => content_children.push(c),
                         "interpolation" | "template_substitution" | "variable_name" => {
                             has_dynamic = true;
                         }
@@ -622,12 +554,7 @@ pub fn node_text(node: Node, source: &str) -> Option<String> {
     source.get(node.byte_range()).map(|s| s.to_string())
 }
 
-fn try_match_marker_node(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Option<SpecNode> {
+fn try_match_marker_node(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Option<SpecNode> {
     for marker in &framework.marker {
         match marker.marker_type.as_str() {
             "attribute" => {
@@ -797,11 +724,10 @@ fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argume
     let mut cursor = attr_item.walk();
     for child in attr_item.children(&mut cursor) {
         if child.kind() == "attribute" {
-            let ident = child.child_by_field_name("path")
-                .or_else(|| {
-                    let mut c = child.walk();
-                    child.children(&mut c).find(|n| matches!(n.kind(), "identifier" | "scoped_identifier"))
-                });
+            let ident = child.child_by_field_name("path").or_else(|| {
+                let mut c = child.walk();
+                child.children(&mut c).find(|n| matches!(n.kind(), "identifier" | "scoped_identifier"))
+            });
             let Some(ident) = ident else { continue };
             if !node_text(ident, source).is_some_and(|p| super::attributes::path_names(&p, attr_name, describable)) {
                 continue;
@@ -812,9 +738,9 @@ fn attribute_matches(attr_item: Node, source: &str, attr_name: &str, attr_argume
                 let has_arg = child.children(&mut c2).any(|n| {
                     if n.kind() == "token_tree" {
                         let mut c3 = n.walk();
-                        return n.children(&mut c3).any(|inner| {
-                            inner.kind() == "identifier" && node_text(inner, source).as_deref() == Some(arg)
-                        });
+                        return n
+                            .children(&mut c3)
+                            .any(|inner| inner.kind() == "identifier" && node_text(inner, source).as_deref() == Some(arg));
                     }
                     false
                 });
@@ -869,8 +795,7 @@ fn try_match_name_pattern_marker(
             };
 
             if nested.is_empty() {
-                let parameterized = detect_parameterization(node, source, framework)
-                    .or_else(|| detect_table_driven(node, source, framework));
+                let parameterized = detect_parameterization(node, source, framework).or_else(|| detect_table_driven(node, source, framework));
                 Some(SpecNode {
                     name: normalized,
                     kind: SpecKind::Spec,
@@ -923,11 +848,7 @@ fn find_nested_specs(node: Node, source: &str, framework: &FrameworkDef) -> Vec<
     results
 }
 
-fn try_match_nested_call(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-) -> Option<SpecNode> {
+fn try_match_nested_call(node: Node, source: &str, framework: &FrameworkDef) -> Option<SpecNode> {
     for nd in &framework.nested_discovery {
         if node.kind() != nd.ast_type {
             continue;
@@ -959,11 +880,7 @@ fn try_match_nested_call(
             }
         };
 
-        let kind = if nested_children.is_empty() {
-            SpecKind::Spec
-        } else {
-            SpecKind::Group
-        };
+        let kind = if nested_children.is_empty() { SpecKind::Spec } else { SpecKind::Group };
 
         return Some(SpecNode {
             name,
@@ -978,11 +895,7 @@ fn try_match_nested_call(
     None
 }
 
-fn detect_parameterization(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-) -> Option<crate::parse::ParamInfo> {
+fn detect_parameterization(node: Node, source: &str, framework: &FrameworkDef) -> Option<crate::parse::ParamInfo> {
     for param_def in &framework.parameterized {
         let count = match param_def.detection.as_str() {
             "attribute" => count_rust_case_attributes(node, source, param_def.attribute_name.as_deref()?),
@@ -1001,11 +914,7 @@ fn detect_parameterization(
     None
 }
 
-fn detect_table_driven(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-) -> Option<crate::parse::ParamInfo> {
+fn detect_table_driven(node: Node, source: &str, framework: &FrameworkDef) -> Option<crate::parse::ParamInfo> {
     let table = framework.table_driven.as_ref()?;
     if !table.enabled {
         return None;
@@ -1024,15 +933,10 @@ fn detect_table_driven(
         let mut cursor = current.walk();
         for child in current.children(&mut cursor) {
             if child.kind() == slice_kind
-                && let Some(literal_value) = child
-                    .children(&mut child.walk())
-                    .find(|c| c.kind() == "literal_value")
+                && let Some(literal_value) = child.children(&mut child.walk()).find(|c| c.kind() == "literal_value")
             {
                 let mut lc = literal_value.walk();
-                let items = literal_value
-                    .children(&mut lc)
-                    .filter(|c| c.kind() == "literal_element")
-                    .count();
+                let items = literal_value.children(&mut lc).filter(|c| c.kind() == "literal_element").count();
                 total_cases += items;
             }
 
@@ -1106,10 +1010,7 @@ fn count_python_parametrize_cases(node: Node, source: &str, decorator_name: &str
         for arg in args.children(&mut ac) {
             if arg.kind() == "list" {
                 let mut lc = arg.walk();
-                let items = arg
-                    .children(&mut lc)
-                    .filter(|c| c.is_named() && c.kind() != "comment")
-                    .count();
+                let items = arg.children(&mut lc).filter(|c| c.is_named() && c.kind() != "comment").count();
                 if items > 0 {
                     return Some(items);
                 }
@@ -1147,10 +1048,7 @@ fn count_array_argument(call: Node) -> Option<usize> {
         let inner = unwrap_php_argument(arg);
         if inner.kind() == "array_creation_expression" {
             let mut ic = inner.walk();
-            let items = inner
-                .children(&mut ic)
-                .filter(|c| c.kind() == "array_element_initializer")
-                .count();
+            let items = inner.children(&mut ic).filter(|c| c.kind() == "array_element_initializer").count();
             if items > 0 {
                 return Some(items);
             }
@@ -1177,10 +1075,7 @@ fn count_jest_each_cases(node: Node, source: &str, method_names: &[String]) -> O
     for arg in args.children(&mut ac) {
         if arg.kind() == "array" {
             let mut lc = arg.walk();
-            let items = arg
-                .children(&mut lc)
-                .filter(|c| c.is_named())
-                .count();
+            let items = arg.children(&mut lc).filter(|c| c.is_named()).count();
             if items > 0 {
                 return Some(items);
             }
@@ -1189,12 +1084,7 @@ fn count_jest_each_cases(node: Node, source: &str, method_names: &[String]) -> O
     None
 }
 
-fn inherited_specs(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    shared: Option<&SharedExampleRegistry>,
-) -> Vec<SpecNode> {
+fn inherited_specs(node: Node, source: &str, framework: &FrameworkDef, shared: Option<&SharedExampleRegistry>) -> Vec<SpecNode> {
     let Some(registry) = shared else { return vec![] };
     let Some(inheritance) = &framework.inheritance else { return vec![] };
     if !inheritance.enabled {
@@ -1224,12 +1114,7 @@ fn inherited_specs(
     specs
 }
 
-fn collect_refs(
-    node: Node,
-    source: &str,
-    framework: &FrameworkDef,
-    inheritance: &crate::parse::registry::InheritanceDef,
-) -> Vec<String> {
+fn collect_refs(node: Node, source: &str, framework: &FrameworkDef, inheritance: &crate::parse::registry::InheritanceDef) -> Vec<String> {
     let mut refs = Vec::new();
     for det in &inheritance.ref_detection {
         match det.strategy.as_str() {
@@ -1422,10 +1307,7 @@ end
         let tree = parse_file(source, "spec/models/user_spec.rb", rspec_framework()).expect("parsed");
         let user = &tree.root[0];
         assert_eq!(user.children.len(), 1);
-        assert_eq!(
-            user.children[0].name, "##{action}",
-            "non-literal receiver should leave placeholder untouched"
-        );
+        assert_eq!(user.children[0].name, "##{action}", "non-literal receiver should leave placeholder untouched");
     }
 
     #[test]
@@ -1783,11 +1665,7 @@ end
         let tree = parse_file(source, "spec/mismatch_spec.rb", rspec_framework()).expect("parsed");
         let mis = &tree.root[0];
         let names: Vec<&str> = mis.children.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, vec![
-            "n=1 s=x",
-            "n=2 s=y",
-            "a=42 b=#{b}",
-        ]);
+        assert_eq!(names, vec!["n=1 s=x", "n=2 s=y", "a=42 b=#{b}",]);
     }
 
     #[test]
@@ -1846,8 +1724,7 @@ end
         let user = &tree.root[0];
         assert_eq!(user.children.len(), 1);
         assert_eq!(
-            user.children[0].name,
-            r#"handles a \n newline in the name"#,
+            user.children[0].name, r#"handles a \n newline in the name"#,
             "multi-chunk Ruby strings must return the full raw text, not just the first string_content child"
         );
     }
@@ -1932,13 +1809,14 @@ fn test_standalone() {
             return None;
         }
         let full = fixtures_path.join(rel_path);
-        Some(std::fs::read_to_string(&full)
-            .unwrap_or_else(|e| panic!("fixture file {} should be readable: {e}", full.display())))
+        Some(std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("fixture file {} should be readable: {e}", full.display())))
     }
 
     #[test]
     fn parse_rspec_fixture_base() {
-        let Some(source) = read_fixture("rspec/base/spec/models/user_spec.rb") else { return };
+        let Some(source) = read_fixture("rspec/base/spec/models/user_spec.rb") else {
+            return;
+        };
         let tree = parse_file(&source, "spec/models/user_spec.rb", rspec_framework());
         let tree = tree.expect("parsed fixture");
         let user = &tree.root[0];
@@ -2015,7 +1893,9 @@ end
 
     #[test]
     fn parse_minitest_fixture_base() {
-        let Some(source) = read_fixture("minitest/base/test/models/user_test.rb") else { return };
+        let Some(source) = read_fixture("minitest/base/test/models/user_test.rb") else {
+            return;
+        };
         let tree = parse_file(&source, "test/models/user_test.rb", minitest_framework());
         let tree = tree.expect("parsed fixture");
         assert_eq!(tree.root.len(), 1);
@@ -2071,7 +1951,9 @@ end
 
     #[test]
     fn parse_pytest_fixture() {
-        let Some(source) = read_fixture("pytest/base/tests/test_user.py") else { return };
+        let Some(source) = read_fixture("pytest/base/tests/test_user.py") else {
+            return;
+        };
         let tree = parse_file(&source, "tests/test_user.py", pytest_framework());
         let tree = tree.expect("parsed fixture");
         assert!(tree.root.len() >= 2, "should have TestUser + TestUserValidation");
@@ -2096,7 +1978,9 @@ end
 
     #[test]
     fn parse_jest_fixture() {
-        let Some(source) = read_fixture("jest/base/__tests__/user.test.js") else { return };
+        let Some(source) = read_fixture("jest/base/__tests__/user.test.js") else {
+            return;
+        };
         let tree = parse_file(&source, "__tests__/user.test.js", jest_framework());
         let tree = tree.expect("parsed fixture");
         assert_eq!(tree.root.len(), 1);
@@ -2184,7 +2068,9 @@ end
 
     #[test]
     fn parse_exunit_fixture() {
-        let Some(source) = read_fixture("exunit/base/test/user_test.exs") else { return };
+        let Some(source) = read_fixture("exunit/base/test/user_test.exs") else {
+            return;
+        };
         let tree = parse_file(&source, "test/user_test.exs", exunit_framework());
         let tree = tree.expect("parsed fixture");
         let validations = tree.root.iter().find(|n| n.name == "validations").expect("validations");
@@ -2658,7 +2544,7 @@ func TestValidate(t *testing.T) {
 #[cfg(test)]
 mod mutation_tests {
     use super::*;
-    use crate::parse::registry::{all_frameworks, TomlFile};
+    use crate::parse::registry::{TomlFile, all_frameworks};
 
     fn rspec() -> &'static FrameworkDef {
         all_frameworks().iter().find(|f| f.name == "rspec").expect("rspec")
@@ -2674,8 +2560,7 @@ mod mutation_tests {
 
     #[test]
     fn a_disabled_loop_expansion_leaves_the_loop_body_as_written() {
-        let toml = include_str!("../../frameworks/rspec.toml")
-            .replacen("enabled = true\neach_method", "enabled = false\neach_method", 1);
+        let toml = include_str!("../../frameworks/rspec.toml").replacen("enabled = true\neach_method", "enabled = false\neach_method", 1);
         let disabled: TomlFile = toml::from_str(&toml).expect("toml");
         let framework = &disabled.framework[0];
         assert!(!framework.loop_expansion.as_ref().expect("loop config").enabled);
@@ -2694,17 +2579,15 @@ mod mutation_tests {
 
     #[test]
     fn a_lowercase_local_and_a_symbol_are_substituted_too() {
-        let source = "RSpec.describe X do\n  prefix = \"p\"\n  role = :admin\n  [1].each do |n|\n    it \"#{prefix} #{role} #{n}\" do\n    end\n  end\nend\n";
+        let source =
+            "RSpec.describe X do\n  prefix = \"p\"\n  role = :admin\n  [1].each do |n|\n    it \"#{prefix} #{role} #{n}\" do\n    end\n  end\nend\n";
         assert_eq!(names(&outline(source)[0].children), vec!["p admin 1"]);
     }
 
     #[test]
     fn hash_and_nested_array_receivers_feed_multi_argument_blocks() {
         let source = "RSpec.describe X do\n  { a: :b, c: 1 }.each do |k, v|\n    it \"#{k} to #{v}\" do\n    end\n  end\n  [[:x, 'y'], [2, 3.5]].each do |p, q|\n    it \"#{p} and #{q}\" do\n    end\n  end\nend\n";
-        assert_eq!(
-            names(&outline(source)[0].children),
-            vec!["a to b", "c to 1", "x and y", "2 and 3.5"]
-        );
+        assert_eq!(names(&outline(source)[0].children), vec!["a to b", "c to 1", "x and y", "2 and 3.5"]);
     }
 
     #[test]
@@ -2757,8 +2640,7 @@ mod mutation_tests {
         let source = "use rstest::rstest;\n\n#[rstest::fixture]\nfn database() -> u32 { 1 }\n\n#[test::custom]\nfn custom() {}\n\n#[rstest]\n#[case::one(1)]\nfn uses(#[case] n: u32) {}\n";
         let rust = all_frameworks().iter().find(|f| f.name == "rust_builtin").expect("rust");
         let root = parse_file(source, "tests/fixtures.rs", rust).expect("parsed").root;
-        let names: Vec<(String, Option<usize>)> =
-            root.iter().map(|n| (n.name.clone(), n.parameterized.as_ref().map(|p| p.case_count))).collect();
+        let names: Vec<(String, Option<usize>)> = root.iter().map(|n| (n.name.clone(), n.parameterized.as_ref().map(|p| p.case_count))).collect();
         assert_eq!(names, [("uses".to_string(), Some(1))]);
     }
 
@@ -2767,8 +2649,7 @@ mod mutation_tests {
         let source = "module Persistable\n  def test_has_id\n  end\nend\n\nmodule Admin\n  def test_not_run_here\n  end\n\n  module Reports\n    class ExportTest < Minitest::Test\n      def test_csv\n      end\n    end\n  end\nend\n";
         let minitest = all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest");
         let root = parse_file(source, "test/admin_test.rb", minitest).expect("parsed").root;
-        let outline: Vec<(String, SpecKind, usize)> =
-            root.iter().map(|n| (n.name.clone(), n.kind.clone(), n.children.len())).collect();
+        let outline: Vec<(String, SpecKind, usize)> = root.iter().map(|n| (n.name.clone(), n.kind.clone(), n.children.len())).collect();
         assert_eq!(outline, [("ExportTest".to_string(), SpecKind::Group, 1)]);
     }
 
@@ -2792,7 +2673,8 @@ mod mutation_tests {
 
     #[test]
     fn a_described_rstest_case_counts_as_a_case() {
-        let source = "#[cfg(test)]\nmod tests {\n    #[rstest]\n    #[case::zero(0)]\n    #[case::one(1)]\n    #[case(2)]\n    fn cases(#[case] n: i32) {}\n}\n";
+        let source =
+            "#[cfg(test)]\nmod tests {\n    #[rstest]\n    #[case::zero(0)]\n    #[case::one(1)]\n    #[case(2)]\n    fn cases(#[case] n: i32) {}\n}\n";
         let rust = all_frameworks().iter().find(|f| f.name == "rust_builtin").expect("rust");
         let tree = parse_file(source, "src/lib.rs", rust).expect("parsed");
         let spec = &tree.root[0].children[0];
@@ -2862,7 +2744,8 @@ mod mutation_tests {
 
     #[test]
     fn go_specs_groups_and_subtests_report_their_lines() {
-        let source = "package user\n\nfunc TestPlain(t *testing.T) {\n}\n\nfunc TestNested(t *testing.T) {\n\tt.Run(\"inner\", func(t *testing.T) {})\n}\n";
+        let source =
+            "package user\n\nfunc TestPlain(t *testing.T) {\n}\n\nfunc TestNested(t *testing.T) {\n\tt.Run(\"inner\", func(t *testing.T) {})\n}\n";
         let root = parse_as("go_testing", "user_test.go", source);
         assert_eq!(summary(&root[0]), ("Plain".into(), SpecKind::Spec, 3));
         assert_eq!(summary(&root[1]), ("Nested".into(), SpecKind::Group, 6));
@@ -2877,19 +2760,42 @@ mod mutation_tests {
     #[test]
     fn go_table_driven_needs_literal_cases_and_a_loop_that_runs_them() {
         let table = "\tcases := []struct{ name string }{\n\t\t{\"a\"},\n\t\t{\"b\"},\n\t}";
-        assert_eq!(go_cases(&format!("{table}\n\tfor _, tc := range cases {{\n\t\tt.Run(tc.name, func(t *testing.T) {{ _ = tc }})\n\t}}")), Some(2));
+        assert_eq!(
+            go_cases(&format!(
+                "{table}\n\tfor _, tc := range cases {{\n\t\tt.Run(tc.name, func(t *testing.T) {{ _ = tc }})\n\t}}"
+            )),
+            Some(2)
+        );
         assert_eq!(go_cases(&format!("{table}\n\tfor _, tc := range cases {{\n\t\t_ = tc\n\t}}")), None);
-        assert_eq!(go_cases(&format!("{table}\n\tname := \"x\"\n\tt.Run(name, func(t *testing.T) {{}})\n\t_ = cases")), None);
-        assert_eq!(go_cases("\tfor _, tc := range load() {\n\t\tt.Run(tc.name, func(t *testing.T) { _ = tc })\n\t}"), None);
+        assert_eq!(
+            go_cases(&format!("{table}\n\tname := \"x\"\n\tt.Run(name, func(t *testing.T) {{}})\n\t_ = cases")),
+            None
+        );
+        assert_eq!(
+            go_cases("\tfor _, tc := range load() {\n\t\tt.Run(tc.name, func(t *testing.T) { _ = tc })\n\t}"),
+            None
+        );
     }
 
     #[test]
     fn empty_parameter_lists_are_not_parameterization() {
-        let py = parse_as("pytest", "tests/test_math.py", "import pytest\n\n@pytest.mark.parametrize(\"a\", [])\ndef test_none(a):\n    pass\n\n@pytest.mark.parametrize(\"a\", [1, 2])\ndef test_two(a):\n    pass\n");
+        let py = parse_as(
+            "pytest",
+            "tests/test_math.py",
+            "import pytest\n\n@pytest.mark.parametrize(\"a\", [])\ndef test_none(a):\n    pass\n\n@pytest.mark.parametrize(\"a\", [1, 2])\ndef test_two(a):\n    pass\n",
+        );
         assert_eq!(py.iter().map(cases).collect::<Vec<_>>(), vec![None, Some(2)]);
-        let js = parse_as("jest", "user.test.js", "it.each([])('none %i', (a) => {});\nit.each([[1], [2]])('two %i', (a) => {});\n");
+        let js = parse_as(
+            "jest",
+            "user.test.js",
+            "it.each([])('none %i', (a) => {});\nit.each([[1], [2]])('two %i', (a) => {});\n",
+        );
         assert_eq!(js.iter().map(cases).collect::<Vec<_>>(), vec![None, Some(2)]);
-        let php = parse_as("pest", "tests/run.php", "<?php\n\ntest('none', function ($a) {})->with([]);\ntest('two', function ($a) {})->with([1, 2]);\n");
+        let php = parse_as(
+            "pest",
+            "tests/run.php",
+            "<?php\n\ntest('none', function ($a) {})->with([]);\ntest('two', function ($a) {})->with([1, 2]);\n",
+        );
         assert_eq!(php.iter().map(cases).collect::<Vec<_>>(), vec![None, Some(2)]);
     }
 
@@ -2920,7 +2826,8 @@ mod mutation_tests {
 
     #[test]
     fn minitest_include_of_a_method_call_is_not_a_module_reference() {
-        let source = "module Shared\n  def test_shared\n  end\nend\n\nclass TestUser < Minitest::Test\n  include Mixins.Shared\n  def test_own\n  end\nend\n";
+        let source =
+            "module Shared\n  def test_shared\n  end\nend\n\nclass TestUser < Minitest::Test\n  include Mixins.Shared\n  def test_own\n  end\nend\n";
         let root = with_types("minitest", "test/models/user_test.rb", source);
         let user = root.iter().find(|n| n.name == "User").expect("User");
         assert_eq!(names(&user.children), vec!["own"]);

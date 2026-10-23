@@ -122,17 +122,11 @@ fn check(root: &Path, roots: &[&str], manifest: &str) -> Vec<String> {
         let source = std::fs::read_to_string(root.join(file)).unwrap_or_default();
         let defined = properties_in(&source);
         for name in names.iter().filter(|n| !defined.contains(*n)) {
-            failures.push(format!(
-                "{file} names property `{name}`, which is not a test inside a `proptest!` block there."
-            ));
+            failures.push(format!("{file} names property `{name}`, which is not a test inside a `proptest!` block there."));
         }
         match (names.is_empty(), owed.contains(file)) {
-            (true, false) => failures.push(format!(
-                "{file} is pure but names no property tests. Write one; `owed` only shrinks."
-            )),
-            (false, true) => failures.push(format!(
-                "{file} has property tests now; remove it from `owed`."
-            )),
+            (true, false) => failures.push(format!("{file} is pure but names no property tests. Write one; `owed` only shrinks.")),
+            (false, true) => failures.push(format!("{file} has property tests now; remove it from `owed`.")),
             _ => {}
         }
     }
@@ -178,8 +172,7 @@ fn the_owed_count_ratchets() {
 #[test]
 fn every_source_file_is_classified_and_pure_ones_have_properties() {
     let root = workspace_root();
-    let manifest = std::fs::read_to_string(root.join("tests/properties.toml"))
-        .unwrap_or_else(|e| panic!("reading tests/properties.toml: {e}"));
+    let manifest = std::fs::read_to_string(root.join("tests/properties.toml")).unwrap_or_else(|e| panic!("reading tests/properties.toml: {e}"));
     let mut files = Vec::new();
     for dir in ROOTS {
         let before = files.len();

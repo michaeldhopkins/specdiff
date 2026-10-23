@@ -9,29 +9,18 @@ fn specdiff() -> Command {
 }
 
 fn fixtures_dir() -> Option<&'static Path> {
-    let dir = Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../specdiff-tests/fixtures"
-    ));
+    let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../specdiff-tests/fixtures"));
     if dir.exists() { Some(dir) } else { None }
 }
 
 #[test]
 fn cli_version() {
-    specdiff()
-        .arg("--version")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("specdiff"));
+    specdiff().arg("--version").assert().success().stdout(predicate::str::contains("specdiff"));
 }
 
 #[test]
 fn cli_help() {
-    specdiff()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("test outline"));
+    specdiff().arg("--help").assert().success().stdout(predicate::str::contains("test outline"));
 }
 
 #[test]
@@ -75,8 +64,10 @@ fn cli_print_tree_rspec_fixtures() {
     specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
             "--full-context",
         ])
         .assert()
@@ -97,9 +88,12 @@ fn cli_print_json_rspec_fixtures() {
     specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
-            "--format", "json",
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
+            "--format",
+            "json",
         ])
         .assert()
         .success()
@@ -119,9 +113,12 @@ fn cli_print_compact_rust_fixtures() {
     specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
-            "--format", "compact",
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
+            "--format",
+            "compact",
         ])
         .assert()
         .success()
@@ -141,8 +138,10 @@ fn cli_print_changed_only() {
     let output = specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
             "--changed-only",
         ])
         .assert()
@@ -164,8 +163,10 @@ fn cli_print_shared_example_resolution() {
     let output = specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
             "--no-color",
         ])
         .assert()
@@ -188,9 +189,12 @@ fn cli_print_filter() {
     let output = specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
-            "--filter", "admin",
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
+            "--filter",
+            "admin",
             "--no-color",
         ])
         .assert()
@@ -213,10 +217,7 @@ fn cli_print_truncates_long_unchanged_run_by_default() {
     spec.push_str("end\n");
 
     let mut head_spec = spec.clone();
-    head_spec.insert_str(
-        head_spec.rfind("end\n").expect("end"),
-        "  it 'brand new spec' do\n  end\n",
-    );
+    head_spec.insert_str(head_spec.rfind("end\n").expect("end"), "  it 'brand new spec' do\n  end\n");
 
     let base_spec_path = base_dir.path().join("spec").join("thing_spec.rb");
     let head_spec_path = head_dir.path().join("spec").join("thing_spec.rb");
@@ -228,8 +229,10 @@ fn cli_print_truncates_long_unchanged_run_by_default() {
     let output = specdiff()
         .args([
             "--print",
-            "--base-dir", base_dir.path().to_str().expect("utf8"),
-            "--head-dir", head_dir.path().to_str().expect("utf8"),
+            "--base-dir",
+            base_dir.path().to_str().expect("utf8"),
+            "--head-dir",
+            head_dir.path().to_str().expect("utf8"),
             "--no-color",
         ])
         .assert()
@@ -254,10 +257,7 @@ fn cli_print_full_context_disables_truncation() {
     spec.push_str("end\n");
 
     let mut head_spec = spec.clone();
-    head_spec.insert_str(
-        head_spec.rfind("end\n").expect("end"),
-        "  it 'brand new spec' do\n  end\n",
-    );
+    head_spec.insert_str(head_spec.rfind("end\n").expect("end"), "  it 'brand new spec' do\n  end\n");
 
     let base_spec_path = base_dir.path().join("spec").join("thing_spec.rb");
     let head_spec_path = head_dir.path().join("spec").join("thing_spec.rb");
@@ -269,8 +269,10 @@ fn cli_print_full_context_disables_truncation() {
     let output = specdiff()
         .args([
             "--print",
-            "--base-dir", base_dir.path().to_str().expect("utf8"),
-            "--head-dir", head_dir.path().to_str().expect("utf8"),
+            "--base-dir",
+            base_dir.path().to_str().expect("utf8"),
+            "--head-dir",
+            head_dir.path().to_str().expect("utf8"),
             "--no-color",
             "--full-context",
         ])
@@ -299,8 +301,10 @@ fn cli_print_parameterized_case_count() {
     let output = specdiff()
         .args([
             "--print",
-            "--base-dir", base.to_str().expect("utf8"),
-            "--head-dir", head.to_str().expect("utf8"),
+            "--base-dir",
+            base.to_str().expect("utf8"),
+            "--head-dir",
+            head.to_str().expect("utf8"),
             "--no-color",
         ])
         .assert()
@@ -325,11 +329,7 @@ fn cli_print_in_git_repo_outlines_changed_test_files_only() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let root = dir.path();
     std::fs::create_dir_all(root.join("spec")).expect("mkdir");
-    std::fs::write(
-        root.join("spec/user_spec.rb"),
-        "RSpec.describe User do\n  it \"exists\" do\n  end\nend\n",
-    )
-    .expect("write spec");
+    std::fs::write(root.join("spec/user_spec.rb"), "RSpec.describe User do\n  it \"exists\" do\n  end\nend\n").expect("write spec");
     std::fs::write(root.join("README.md"), "base\n").expect("write readme");
     git(root, &["init", "-q", "-b", "main"]);
     git(root, &["add", "-A"]);

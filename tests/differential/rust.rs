@@ -36,8 +36,7 @@ fn harnesses(project: &Path, name: &str) -> Result<Vec<Harness>, Skip> {
     for line in json.lines() {
         let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else { continue };
         let is_test_harness = msg["reason"] == "compiler-artifact" && msg["profile"]["test"] == true;
-        let (Some(exe), Some(src), Some(manifest)) =
-            (msg["executable"].as_str(), msg["target"]["src_path"].as_str(), msg["manifest_path"].as_str())
+        let (Some(exe), Some(src), Some(manifest)) = (msg["executable"].as_str(), msg["target"]["src_path"].as_str(), msg["manifest_path"].as_str())
         else {
             continue;
         };
@@ -120,7 +119,11 @@ pub fn reference(project: &Path, name: &str) -> Result<Vec<TestId>, Skip> {
     ids.extend(cases.into_iter().map(|((file, path), n)| (file, path, Some(n))));
     Ok(ids
         .into_iter()
-        .map(|(file, path, cases)| TestId { file, path: path.iter().map(|s| normalize(s, norm)).collect(), cases })
+        .map(|(file, path, cases)| TestId {
+            file,
+            path: path.iter().map(|s| normalize(s, norm)).collect(),
+            cases,
+        })
         .collect())
 }
 

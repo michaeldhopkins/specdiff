@@ -310,10 +310,7 @@ pub fn all_frameworks() -> &'static [FrameworkDef] {
 }
 
 pub fn frameworks_for_file(path: &Path) -> Vec<&'static FrameworkDef> {
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{e}"));
+    let extension = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{e}"));
     let path_str = path.to_string_lossy();
 
     all_frameworks()
@@ -323,9 +320,7 @@ pub fn frameworks_for_file(path: &Path) -> Vec<&'static FrameworkDef> {
                 return false;
             };
 
-            let ext_matches = extension
-                .as_ref()
-                .is_some_and(|ext| files.extensions.contains(ext));
+            let ext_matches = extension.as_ref().is_some_and(|ext| files.extensions.contains(ext));
             if !ext_matches {
                 return false;
             }
@@ -334,18 +329,18 @@ pub fn frameworks_for_file(path: &Path) -> Vec<&'static FrameworkDef> {
                 return true;
             }
 
-            let included = files.include_globs.iter().any(|g| {
-                glob::Pattern::new(g)
-                    .is_ok_and(|pat| pat.matches(&path_str))
-            });
+            let included = files
+                .include_globs
+                .iter()
+                .any(|g| glob::Pattern::new(g).is_ok_and(|pat| pat.matches(&path_str)));
             if !included {
                 return false;
             }
 
-            let excluded = files.exclude_globs.iter().any(|g| {
-                glob::Pattern::new(g)
-                    .is_ok_and(|pat| pat.matches(&path_str))
-            });
+            let excluded = files
+                .exclude_globs
+                .iter()
+                .any(|g| glob::Pattern::new(g).is_ok_and(|pat| pat.matches(&path_str)));
 
             !excluded
         })
@@ -367,7 +362,9 @@ pub fn normalize_file_path(path: &str, framework: &FrameworkDef) -> String {
         }
     }
 
-    if pg.strip_extension && let Some(dot) = result.rfind('.') {
+    if pg.strip_extension
+        && let Some(dot) = result.rfind('.')
+    {
         result.truncate(dot);
     }
 

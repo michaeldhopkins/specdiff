@@ -8,17 +8,13 @@ pub struct GitVcs {
 
 impl GitVcs {
     pub fn open(path: &Path) -> Result<Self> {
-        let repo = git2::Repository::discover(path)
-            .with_context(|| format!("no git repository found at {}", path.display()))?;
+        let repo = git2::Repository::discover(path).with_context(|| format!("no git repository found at {}", path.display()))?;
         Ok(Self { repo })
     }
 
     fn resolve_rev(&self, rev: &str) -> Result<git2::Oid> {
-        let obj = self.repo.revparse_single(rev)
-            .with_context(|| format!("cannot resolve revision '{rev}'"))?;
-        Ok(obj.peel_to_commit()
-            .with_context(|| format!("'{rev}' does not point to a commit"))?
-            .id())
+        let obj = self.repo.revparse_single(rev).with_context(|| format!("cannot resolve revision '{rev}'"))?;
+        Ok(obj.peel_to_commit().with_context(|| format!("'{rev}' does not point to a commit"))?.id())
     }
 
     fn tree_for_commit(&self, oid: git2::Oid) -> Result<git2::Tree<'_>> {
@@ -27,12 +23,12 @@ impl GitVcs {
     }
 
     fn blob_content(&self, tree: &git2::Tree<'_>, path: &Path) -> Result<String> {
-        let entry = tree.get_path(path)
-            .with_context(|| format!("file {} not found in tree", path.display()))?;
-        let blob = self.repo.find_blob(entry.id())
+        let entry = tree.get_path(path).with_context(|| format!("file {} not found in tree", path.display()))?;
+        let blob = self
+            .repo
+            .find_blob(entry.id())
             .with_context(|| format!("cannot read blob for {}", path.display()))?;
-        let content = std::str::from_utf8(blob.content())
-            .with_context(|| format!("{} is not valid UTF-8", path.display()))?;
+        let content = std::str::from_utf8(blob.content()).with_context(|| format!("{} is not valid UTF-8", path.display()))?;
         Ok(content.to_string())
     }
 }
@@ -44,8 +40,7 @@ impl GitVcs {
 /// count as additions, `.gitignore`d ones are excluded. `base_sha` is a git commit
 /// id (in a colocated repo, jj's `commit_id` is exactly that).
 pub(crate) fn changed_paths_to_workdir(repo_path: &Path, base_sha: &str) -> Result<Vec<PathBuf>> {
-    let repo = git2::Repository::discover(repo_path)
-        .with_context(|| format!("no git repository found at {}", repo_path.display()))?;
+    let repo = git2::Repository::discover(repo_path).with_context(|| format!("no git repository found at {}", repo_path.display()))?;
     let base_tree = repo
         .revparse_single(base_sha)
         .with_context(|| format!("cannot resolve base '{base_sha}'"))?
@@ -86,11 +81,7 @@ impl Vcs for GitVcs {
         let base_tree = self.tree_for_commit(base_oid)?;
         let head_tree = self.tree_for_commit(head_oid)?;
 
-        let diff = self.repo.diff_tree_to_tree(
-            Some(&base_tree),
-            Some(&head_tree),
-            None,
-        )?;
+        let diff = self.repo.diff_tree_to_tree(Some(&base_tree), Some(&head_tree), None)?;
 
         let mut files = Vec::new();
         diff.foreach(
@@ -112,8 +103,7 @@ impl Vcs for GitVcs {
 
     fn file_at_revision(&self, path: &Path, rev: &str) -> Result<String> {
         if rev == "WORKDIR" {
-            let workdir = self.repo.workdir()
-                .context("bare repository has no working directory")?;
+            let workdir = self.repo.workdir().context("bare repository has no working directory")?;
             let rel = path.to_string_lossy();
             return crate::vcs::shared::read_working_file(workdir, &rel)?
                 .with_context(|| format!("cannot read {} (absent from working copy)", path.display()));
@@ -127,7 +117,9 @@ impl Vcs for GitVcs {
     fn merge_base(&self, a: &str, b: &str) -> Result<String> {
         let a_oid = self.resolve_rev(a)?;
         let b_oid = self.resolve_rev(b)?;
-        let base = self.repo.merge_base(a_oid, b_oid)
+        let base = self
+            .repo
+            .merge_base(a_oid, b_oid)
             .with_context(|| format!("no merge base between '{a}' and '{b}'"))?;
         Ok(base.to_string())
     }
@@ -144,17 +136,12 @@ impl Vcs for GitVcs {
         let head = self.repo.head()?;
         let tree = head.peel_to_tree()?;
 
-        let pat = glob::Pattern::new(pattern)
-            .with_context(|| format!("invalid glob pattern: {pattern}"))?;
+        let pat = glob::Pattern::new(pattern).with_context(|| format!("invalid glob pattern: {pattern}"))?;
 
         let mut files = Vec::new();
         tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
             if let Ok(name) = entry.name() {
-                let full_path = if dir.is_empty() {
-                    name.to_string()
-                } else {
-                    format!("{dir}{name}")
-                };
+                let full_path = if dir.is_empty() { name.to_string() } else { format!("{dir}{name}") };
                 if pat.matches(&full_path) {
                     files.push(PathBuf::from(full_path));
                 }
@@ -166,14 +153,7 @@ impl Vcs for GitVcs {
     }
 
     fn default_base_rev(&self) -> String {
-        for candidate in [
-            "origin/main",
-            "origin/master",
-            "upstream/main",
-            "upstream/master",
-            "main",
-            "master",
-        ] {
+        for candidate in ["origin/main", "origin/master", "upstream/main", "upstream/master", "main", "master"] {
             if self.resolve_rev(candidate).is_ok() {
                 return candidate.to_string();
             }
@@ -196,11 +176,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path();
 
-        Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(path)
-            .output()
-            .expect("git init");
+        Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().expect("git init");
 
         Command::new("git")
             .args(["config", "user.email", "test@test.com"])
@@ -218,13 +194,10 @@ mod tests {
         std::fs::write(
             path.join("spec/models/user_spec.rb"),
             "RSpec.describe User do\n  it \"exists\" do\n  end\nend\n",
-        ).expect("write");
+        )
+        .expect("write");
 
-        Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(path)
-            .output()
-            .expect("git add");
+        Command::new("git").args(["add", "-A"]).current_dir(path).output().expect("git add");
 
         Command::new("git")
             .args(["commit", "-m", "initial"])
@@ -241,13 +214,10 @@ mod tests {
         std::fs::write(
             path.join("spec/models/user_spec.rb"),
             "RSpec.describe User do\n  it \"exists\" do\n  end\n  it \"validates\" do\n  end\nend\n",
-        ).expect("write modified");
+        )
+        .expect("write modified");
 
-        Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(path)
-            .output()
-            .expect("git add");
+        Command::new("git").args(["add", "-A"]).current_dir(path).output().expect("git add");
 
         Command::new("git")
             .args(["commit", "-m", "add validation"])
@@ -298,12 +268,9 @@ mod tests {
     #[test]
     fn git_files_matching_globs_the_head_tree() {
         let (dir, vcs) = create_test_repo();
-        std::fs::write(dir.path().join("spec/models/untracked_spec.rb"), "x\n")
-            .expect("write untracked");
+        std::fs::write(dir.path().join("spec/models/untracked_spec.rb"), "x\n").expect("write untracked");
 
-        let files = vcs
-            .files_matching("spec/**/*_spec.rb")
-            .expect("files_matching");
+        let files = vcs.files_matching("spec/**/*_spec.rb").expect("files_matching");
 
         assert_eq!(files, vec![PathBuf::from("spec/models/user_spec.rb")]);
     }
@@ -332,7 +299,9 @@ mod tests {
         assert!(content.contains("exists"));
         assert!(!content.contains("validates"));
 
-        let content = vcs.file_at_revision(Path::new("spec/models/user_spec.rb"), "feature").expect("file_at_revision");
+        let content = vcs
+            .file_at_revision(Path::new("spec/models/user_spec.rb"), "feature")
+            .expect("file_at_revision");
         assert!(content.contains("validates"));
     }
 
@@ -414,10 +383,7 @@ mod tests {
     fn default_base_rev_falls_back_to_local_when_no_remote() {
         let (dir, vcs) = create_test_repo();
         let remote_dir = dir.path().join(".git/refs/remotes");
-        assert!(
-            !remote_dir.exists(),
-            "test repo must not have remotes for the fallback to be exercised"
-        );
+        assert!(!remote_dir.exists(), "test repo must not have remotes for the fallback to be exercised");
         assert_eq!(vcs.default_base_rev(), "main");
     }
 

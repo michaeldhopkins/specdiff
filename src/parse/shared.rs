@@ -1,5 +1,5 @@
-use crate::parse::registry::FrameworkDef;
 use crate::parse::SpecNode;
+use crate::parse::registry::FrameworkDef;
 use std::collections::HashMap;
 
 #[derive(Debug, Default, Clone)]
@@ -37,12 +37,7 @@ impl SharedExampleRegistry {
         specs
     }
 
-    fn resolve_type_inner(
-        &self,
-        name: &str,
-        visited: &mut std::collections::HashSet<String>,
-        out: &mut Vec<SpecNode>,
-    ) {
+    fn resolve_type_inner(&self, name: &str, visited: &mut std::collections::HashSet<String>, out: &mut Vec<SpecNode>) {
         if !visited.insert(name.to_string()) {
             return;
         }
@@ -65,11 +60,7 @@ impl SharedExampleRegistry {
     }
 }
 
-pub fn scan_for_definitions(
-    source: &str,
-    framework: &FrameworkDef,
-    registry: &mut SharedExampleRegistry,
-) {
+pub fn scan_for_definitions(source: &str, framework: &FrameworkDef, registry: &mut SharedExampleRegistry) {
     let language = match crate::parse::engine::language_for_framework(framework) {
         Some(l) => l,
         None => return,
@@ -94,12 +85,7 @@ pub fn scan_for_definitions(
     scan_types(tree.root_node(), source, framework, registry);
 }
 
-fn scan_types(
-    node: tree_sitter::Node,
-    source: &str,
-    framework: &FrameworkDef,
-    registry: &mut SharedExampleRegistry,
-) {
+fn scan_types(node: tree_sitter::Node, source: &str, framework: &FrameworkDef, registry: &mut SharedExampleRegistry) {
     let Some(inheritance) = &framework.inheritance else { return };
     if !inheritance.enabled || inheritance.type_node_kinds.is_empty() {
         return;
@@ -132,11 +118,7 @@ fn type_registration_names(full_name: &str) -> Vec<String> {
     names
 }
 
-fn extract_type_definition(
-    node: tree_sitter::Node,
-    source: &str,
-    framework: &FrameworkDef,
-) -> Option<TypeDefinition> {
+fn extract_type_definition(node: tree_sitter::Node, source: &str, framework: &FrameworkDef) -> Option<TypeDefinition> {
     let ast = framework.ast_kinds.as_ref()?;
 
     let name_node = if let Some(field) = &ast.name_field
@@ -145,10 +127,8 @@ fn extract_type_definition(
         n
     } else {
         let mut cursor = node.walk();
-        node.children(&mut cursor).find(|c| {
-            ast.name_child.as_deref().is_some_and(|k| k == c.kind())
-                || ast.name_child_alt.as_deref().is_some_and(|k| k == c.kind())
-        })?
+        node.children(&mut cursor)
+            .find(|c| ast.name_child.as_deref().is_some_and(|k| k == c.kind()) || ast.name_child_alt.as_deref().is_some_and(|k| k == c.kind()))?
     };
     let full_name = crate::parse::engine::node_text(name_node, source)?;
 
@@ -216,8 +196,7 @@ fn collect_type_refs(
                     if !crate::parse::engine::is_dsl_call_kind(child.kind()) {
                         continue;
                     }
-                    let Some(method) = crate::parse::engine::extract_method_name(child, source)
-                    else {
+                    let Some(method) = crate::parse::engine::extract_method_name(child, source) else {
                         continue;
                     };
                     if !det.method_names.iter().any(|m| m == &method) {
@@ -291,12 +270,7 @@ fn try_match_definition(
             continue;
         }
 
-        let name = crate::parse::engine::extract_name(
-            node,
-            source,
-            &def.name_source,
-            def.name_source_type.as_deref(),
-        )?;
+        let name = crate::parse::engine::extract_name(node, source, &def.name_source, def.name_source_type.as_deref())?;
 
         let block = crate::parse::engine::find_block(node)?;
         let children = crate::parse::engine::parse_children(block, source, framework);
@@ -317,24 +291,15 @@ mod tests {
     }
 
     fn minitest() -> &'static FrameworkDef {
-        all_frameworks()
-            .iter()
-            .find(|f| f.name == "minitest")
-            .expect("minitest")
+        all_frameworks().iter().find(|f| f.name == "minitest").expect("minitest")
     }
 
     fn pytest() -> &'static FrameworkDef {
-        all_frameworks()
-            .iter()
-            .find(|f| f.name == "pytest")
-            .expect("pytest")
+        all_frameworks().iter().find(|f| f.name == "pytest").expect("pytest")
     }
 
     fn junit() -> &'static FrameworkDef {
-        all_frameworks()
-            .iter()
-            .find(|f| f.name == "junit")
-            .expect("junit")
+        all_frameworks().iter().find(|f| f.name == "junit").expect("junit")
     }
 
     fn spec_names(specs: &[SpecNode]) -> Vec<&str> {
@@ -421,9 +386,7 @@ RSpec.describe User do
   end
 end
 "#;
-        let tree = crate::parse::engine::parse_file_with_shared(
-            test_source, "spec/models/user_spec.rb", rspec(), Some(&registry),
-        );
+        let tree = crate::parse::engine::parse_file_with_shared(test_source, "spec/models/user_spec.rb", rspec(), Some(&registry));
         let tree = tree.expect("parsed with shared");
         let user = &tree.root[0];
         assert_eq!(user.children.len(), 3, "should have 2 inlined + 1 own spec");
@@ -453,9 +416,7 @@ RSpec.describe User do
   end
 end
 "#;
-        let tree = crate::parse::engine::parse_file_with_shared(
-            test_source, "spec/models/user_spec.rb", rspec(), Some(&registry),
-        );
+        let tree = crate::parse::engine::parse_file_with_shared(test_source, "spec/models/user_spec.rb", rspec(), Some(&registry));
         let tree = tree.expect("parsed with shared");
         let user = &tree.root[0];
         assert_eq!(user.children.len(), 2, "should have 1 nested group + 1 own spec");
@@ -480,9 +441,7 @@ RSpec.describe User do
   end
 end
 "#;
-        let tree = crate::parse::engine::parse_file_with_shared(
-            test_source, "spec/models/user_spec.rb", rspec(), Some(&registry),
-        );
+        let tree = crate::parse::engine::parse_file_with_shared(test_source, "spec/models/user_spec.rb", rspec(), Some(&registry));
         let tree = tree.expect("parsed");
         let user = &tree.root[0];
         assert_eq!(user.children.len(), 1, "unresolved inclusion should be skipped");
@@ -498,9 +457,7 @@ RSpec.describe User do
   end
 end
 "#;
-        let tree = crate::parse::engine::parse_file(
-            test_source, "spec/models/user_spec.rb", rspec(),
-        );
+        let tree = crate::parse::engine::parse_file(test_source, "spec/models/user_spec.rb", rspec());
         let tree = tree.expect("parsed");
         let user = &tree.root[0];
         assert_eq!(user.children.len(), 2, "should have placeholder + own spec");
@@ -558,8 +515,7 @@ creates = "spec"
 enabled = false
 type_node_kinds = ["class_definition"]
 "#;
-        let file: crate::parse::registry::TomlFile =
-            toml::from_str(toml_src).expect("framework definitions parse");
+        let file: crate::parse::registry::TomlFile = toml::from_str(toml_src).expect("framework definitions parse");
         let enabled = &file.framework[0];
         let disabled = &file.framework[1];
 
@@ -573,10 +529,7 @@ type_node_kinds = ["class_definition"]
 
         let mut registry = SharedExampleRegistry::default();
         scan_for_definitions(source, disabled, &mut registry);
-        assert!(
-            registry.get_type("UserTest").is_none(),
-            "inheritance disabled must stop type registration"
-        );
+        assert!(registry.get_type("UserTest").is_none(), "inheritance disabled must stop type registration");
         assert!(registry.is_empty());
     }
 
@@ -592,9 +545,7 @@ end
         let mut registry = SharedExampleRegistry::default();
         scan_for_definitions(source, minitest(), &mut registry);
 
-        let full = registry
-            .get_type("Foo::UserTest")
-            .expect("full name registered");
+        let full = registry.get_type("Foo::UserTest").expect("full name registered");
         assert_eq!(spec_names(full), ["works"]);
         let tail = registry.get_type("UserTest").expect("tail name registered");
         assert_eq!(spec_names(tail), ["works"]);
@@ -631,18 +582,8 @@ class UserTest extends BaseTest {
             "superclass refs must chain transitively through the registry"
         );
 
-        let tree = crate::parse::engine::parse_file_with_shared(
-            source,
-            "tests/UserTest.java",
-            junit(),
-            Some(&registry),
-        )
-        .expect("parsed with shared");
-        let user = tree
-            .root
-            .iter()
-            .find(|n| n.name == "User")
-            .expect("User group");
+        let tree = crate::parse::engine::parse_file_with_shared(source, "tests/UserTest.java", junit(), Some(&registry)).expect("parsed with shared");
+        let user = tree.root.iter().find(|n| n.name == "User").expect("User group");
         assert_eq!(
             spec_names(&user.children),
             ["Grand", "Shared", "Own"],
@@ -704,14 +645,8 @@ end
 
         let resolved = registry.resolve_type("UserTest");
         let names = spec_names(&resolved);
-        assert!(
-            names.contains(&"auth"),
-            "include AuthHelper ref should resolve, got {names:?}"
-        );
-        assert!(
-            !names.contains(&"is user"),
-            "describe's argument is not an inheritance ref, got {names:?}"
-        );
+        assert!(names.contains(&"auth"), "include AuthHelper ref should resolve, got {names:?}");
+        assert!(!names.contains(&"is user"), "describe's argument is not an inheritance ref, got {names:?}");
     }
 
     #[test]

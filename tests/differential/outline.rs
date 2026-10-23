@@ -26,7 +26,10 @@ pub fn family(framework: &str) -> &str {
 }
 
 pub fn framework(name: &str) -> &'static FrameworkDef {
-    all_frameworks().iter().find(|f| f.name == name).unwrap_or_else(|| panic!("no framework {name}"))
+    all_frameworks()
+        .iter()
+        .find(|f| f.name == name)
+        .unwrap_or_else(|| panic!("no framework {name}"))
 }
 
 /// Every file under `root` that git would see (the `ignore` walker honours `.gitignore`), as
@@ -90,13 +93,15 @@ pub fn outline(root: &Path, family_name: &str) -> Vec<TestId> {
 /// specdiff's outline of every file in `root` whose framework belongs to `family`.
 pub fn trees(root: &Path, family_name: &str) -> Vec<(String, Vec<SpecNode>)> {
     let all = project_files(root);
-    let tests: Vec<String> =
-        all.iter().filter(|f| !frameworks_for_file(Path::new(f.as_str())).is_empty()).cloned().collect();
-    let project = Project { root: root.to_path_buf(), all, tests };
+    let tests: Vec<String> = all.iter().filter(|f| !frameworks_for_file(Path::new(f.as_str())).is_empty()).cloned().collect();
+    let project = Project {
+        root: root.to_path_buf(),
+        all,
+        tests,
+    };
     let cli = Cli::parse_from(["specdiff"]);
     let registry = if changed_files_need_shared_scan(&project.tests, &project, &cli) {
-        let scannable: BTreeSet<String> =
-            project.tests.iter().cloned().chain(project.list_shared_files_all()).collect();
+        let scannable: BTreeSet<String> = project.tests.iter().cloned().chain(project.list_shared_files_all()).collect();
         let scannable: Vec<String> = scannable.into_iter().collect();
         build_shared_registry(&project, &scannable, &cli, |s, p| s.read_head(p))
     } else {
@@ -106,7 +111,9 @@ pub fn trees(root: &Path, family_name: &str) -> Vec<(String, Vec<SpecNode>)> {
 
     let mut out = Vec::new();
     for path in &project.tests {
-        let Some(fw) = frameworks_for_file(Path::new(path)).first().copied() else { continue };
+        let Some(fw) = frameworks_for_file(Path::new(path)).first().copied() else {
+            continue;
+        };
         if family(&fw.name) != family_name {
             continue;
         }

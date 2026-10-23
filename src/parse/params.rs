@@ -30,7 +30,13 @@ fn spellings(required: &str, function: Node, source: &str) -> Vec<String> {
     local_names
         .into_iter()
         .filter(|local| local != "_")
-        .map(|local| if local == "." { format!("{stars}{name}") } else { format!("{stars}{local}.{name}") })
+        .map(|local| {
+            if local == "." {
+                format!("{stars}{name}")
+            } else {
+                format!("{stars}{local}.{name}")
+            }
+        })
         .collect()
 }
 
@@ -54,7 +60,11 @@ fn import_names(node: Node, source: &str, package: &str) -> Option<Vec<String>> 
                 .and_then(|p| node_text(p, source))
                 .is_some_and(|p| p.trim_matches(|c| c == '"' || c == '`') == package)
         })
-        .map(|spec| spec.child_by_field_name("name").and_then(|n| node_text(n, source)).unwrap_or_else(|| package.to_string()))
+        .map(|spec| {
+            spec.child_by_field_name("name")
+                .and_then(|n| node_text(n, source))
+                .unwrap_or_else(|| package.to_string())
+        })
         .collect();
     (!names.is_empty()).then_some(names)
 }

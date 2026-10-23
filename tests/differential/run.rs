@@ -29,7 +29,6 @@ pub fn output(cmd: &mut Command) -> Result<String, Skip> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-
 /// A scratch directory for a reference's build output, so a listing never writes into the
 /// project it lists.
 pub fn scratch(name: &str) -> PathBuf {

@@ -5,18 +5,10 @@
 
 use std::process::Command;
 
-const FORBIDDEN: &[&str] = &[
-    "libgit2",
-    "/opt/homebrew/",
-    "/usr/local/Cellar/",
-    "/usr/local/opt/",
-];
+const FORBIDDEN: &[&str] = &["libgit2", "/opt/homebrew/", "/usr/local/Cellar/", "/usr/local/opt/"];
 
 fn offending_lines(listing: &str) -> Vec<&str> {
-    listing
-        .lines()
-        .filter(|l| FORBIDDEN.iter().any(|f| l.contains(f)))
-        .collect()
+    listing.lines().filter(|l| FORBIDDEN.iter().any(|f| l.contains(f))).collect()
 }
 
 #[test]
@@ -31,9 +23,7 @@ fn binary_does_not_link_a_system_libgit2() {
         .args(args)
         .arg(env!("CARGO_BIN_EXE_specdiff"))
         .output()
-        .unwrap_or_else(|e| {
-            panic!("{tool} is not available ({e}), so linked libraries cannot be listed")
-        });
+        .unwrap_or_else(|e| panic!("{tool} is not available ({e}), so linked libraries cannot be listed"));
     let listing = String::from_utf8_lossy(&out.stdout);
     assert!(!listing.is_empty(), "the linker listing was empty");
     let offending = offending_lines(&listing);

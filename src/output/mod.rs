@@ -3,7 +3,7 @@ pub mod truncate;
 use crate::diff::types::{DiffKind, DiffNode, FileDiff, Stats};
 use std::fmt::Write;
 use std::io::IsTerminal;
-use truncate::{truncate_unchanged_runs, CONTEXT_HEAD, CONTEXT_TAIL};
+use truncate::{CONTEXT_HEAD, CONTEXT_TAIL, truncate_unchanged_runs};
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -42,11 +42,7 @@ fn color_enabled(requested: bool, stdout_is_terminal: bool, no_color_env: Option
 }
 
 pub fn format_tree(file_diffs: &[FileDiff], opts: TreeOptions) -> String {
-    let use_color = color_enabled(
-        opts.color,
-        std::io::stdout().is_terminal(),
-        std::env::var_os("NO_COLOR").as_deref(),
-    );
+    let use_color = color_enabled(opts.color, std::io::stdout().is_terminal(), std::env::var_os("NO_COLOR").as_deref());
 
     let mut lines: Vec<RenderedLine> = Vec::new();
     push_stats_header(&mut lines, file_diffs, use_color);
@@ -114,7 +110,10 @@ fn push_stats_header(lines: &mut Vec<RenderedLine>, file_diffs: &[FileDiff], use
         push_stat(&mut text, CYAN, '~', stats.modified, use_color);
     }
     lines.push(RenderedLine { kind: LineKind::Other, text });
-    lines.push(RenderedLine { kind: LineKind::Other, text: String::new() });
+    lines.push(RenderedLine {
+        kind: LineKind::Other,
+        text: String::new(),
+    });
 }
 
 fn push_stat(text: &mut String, color: &str, glyph: char, count: usize, use_color: bool) {
@@ -134,32 +133,21 @@ fn push_stat_str(text: &mut String, color: &str, glyph: &str, count: usize, use_
 }
 
 fn push_file_header(lines: &mut Vec<RenderedLine>, path: &str, use_color: bool) {
-    let text = if use_color {
-        format!("{BOLD}  {path}{RESET}")
-    } else {
-        format!("  {path}")
-    };
+    let text = if use_color { format!("{BOLD}  {path}{RESET}") } else { format!("  {path}") };
     lines.push(RenderedLine { kind: LineKind::Other, text });
 }
 
 fn make_ellipsis_line(hidden: usize, use_color: bool) -> RenderedLine {
     let plural = if hidden == 1 { "" } else { "s" };
     let body = format!("    ... ({hidden} hidden line{plural})");
-    let text = if use_color {
-        format!("{DIM}{body}{RESET}")
-    } else {
-        body
-    };
-    RenderedLine { kind: LineKind::Ellipsis(hidden), text }
+    let text = if use_color { format!("{DIM}{body}{RESET}") } else { body };
+    RenderedLine {
+        kind: LineKind::Ellipsis(hidden),
+        text,
+    }
 }
 
-fn push_tree_node(
-    node: &DiffNode,
-    lines: &mut Vec<RenderedLine>,
-    depth: usize,
-    changed_only: bool,
-    color: bool,
-) {
+fn push_tree_node(node: &DiffNode, lines: &mut Vec<RenderedLine>, depth: usize, changed_only: bool, color: bool) {
     if changed_only && node.kind == DiffKind::Unchanged && !node.has_changes() {
         return;
     }
@@ -201,7 +189,10 @@ fn push_tree_node(
         _ => format!("{color_start}{prefix} {indent}{}{param_suffix}{color_end}", node.name),
     };
 
-    lines.push(RenderedLine { kind: LineKind::Spec(node.kind), text });
+    lines.push(RenderedLine {
+        kind: LineKind::Spec(node.kind),
+        text,
+    });
 
     for child in &node.children {
         push_tree_node(child, lines, depth + 1, changed_only, color);
@@ -241,11 +232,19 @@ mod tests {
     use super::*;
 
     fn opts_plain(changed_only: bool) -> TreeOptions {
-        TreeOptions { changed_only, color: false, full_context: true }
+        TreeOptions {
+            changed_only,
+            color: false,
+            full_context: true,
+        }
     }
 
     fn opts_truncating() -> TreeOptions {
-        TreeOptions { changed_only: false, color: false, full_context: false }
+        TreeOptions {
+            changed_only: false,
+            color: false,
+            full_context: false,
+        }
     }
 
     fn unchanged(name: &str) -> DiffNode {
@@ -280,10 +279,7 @@ mod tests {
                     old_name: None,
                     param_cases: None,
                     old_param_cases: None,
-                    children: vec![
-                        unchanged("validates email"),
-                        added("validates uniqueness"),
-                    ],
+                    children: vec![unchanged("validates email"), added("validates uniqueness")],
                 },
                 DiffNode {
                     name: "associations".into(),
@@ -370,10 +366,7 @@ mod tests {
             }],
         }];
         let output = format_tree(&diffs, opts_plain(false));
-        let rename_line = output
-            .lines()
-            .find(|l| l.contains("validates shape"))
-            .expect("rename line");
+        let rename_line = output.lines().find(|l| l.contains("validates shape")).expect("rename line");
         assert_eq!(
             rename_line.matches("->").count(),
             1,
@@ -429,10 +422,7 @@ mod tests {
         }];
         let output = format_tree(&diffs, opts_plain(false));
         let body: Vec<&str> = output.lines().skip_while(|l| *l != "  m::u").collect();
-        assert_eq!(
-            body,
-            vec!["  m::u", "~    group", "+      child", "->     moved (was old moved)"]
-        );
+        assert_eq!(body, vec!["  m::u", "~    group", "+      child", "->     moved (was old moved)"]);
     }
 
     #[test]
@@ -515,16 +505,17 @@ mod tests {
         assert!(output.contains("ctx 9"));
         assert!(output.contains("... (5 hidden lines)"), "ellipsis line with count");
         assert!(output.contains("new spec"), "changed line still present");
-        let new_spec_line = output
-            .lines()
-            .find(|l| l.contains("new spec"))
-            .expect("new spec line");
+        let new_spec_line = output.lines().find(|l| l.contains("new spec")).expect("new spec line");
         assert!(new_spec_line.trim_start().starts_with('+'), "new spec rendered as Added");
     }
 
     #[test]
     fn truncation_full_context_flag_disables_truncation() {
-        let opts = TreeOptions { changed_only: false, color: false, full_context: true };
+        let opts = TreeOptions {
+            changed_only: false,
+            color: false,
+            full_context: true,
+        };
         let output = format_tree(&diffs_with_long_unchanged_run(), opts);
         for i in 0..10 {
             assert!(output.contains(&format!("ctx {i}")), "--full-context shows ctx {i}");
@@ -534,7 +525,11 @@ mod tests {
 
     #[test]
     fn truncation_changed_only_drops_all_unchanged() {
-        let opts = TreeOptions { changed_only: true, color: false, full_context: false };
+        let opts = TreeOptions {
+            changed_only: true,
+            color: false,
+            full_context: false,
+        };
         let output = format_tree(&diffs_with_long_unchanged_run(), opts);
         for i in 0..10 {
             assert!(!output.contains(&format!("ctx {i}")), "--changed-only drops ctx {i}");
@@ -605,10 +600,6 @@ mod tests {
         let output = format_tree(&diffs, opts_truncating());
         assert!(output.contains("file_a"), "first file header preserved");
         assert!(output.contains("file_b"), "second file header preserved");
-        assert_eq!(
-            output.matches("hidden line").count(),
-            2,
-            "one ellipsis per file run"
-        );
+        assert_eq!(output.matches("hidden line").count(), 2, "one ellipsis per file run");
     }
 }

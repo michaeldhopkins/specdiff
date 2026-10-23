@@ -46,7 +46,9 @@ fn module_reference(project: &Path, module: &Path, _name: &str) -> Result<Vec<Te
     let mut answered = std::collections::BTreeSet::new();
     let mut ids = Vec::new();
     for line in json.lines() {
-        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
         let Some(package) = event["Package"].as_str() else { continue };
         answered.insert(package.to_string());
         if event["Action"] != "output" {
@@ -58,10 +60,17 @@ fn module_reference(project: &Path, module: &Path, _name: &str) -> Result<Vec<Te
             continue;
         }
         let dir = dirs.get(package).unwrap_or_else(|| panic!("go list did not report {package}"));
-        ids.push(TestId { file: dir.clone(), path: vec![normalize(text, norm)], cases: None });
+        ids.push(TestId {
+            file: dir.clone(),
+            path: vec![normalize(text, norm)],
+            cases: None,
+        });
     }
     for package in dirs.keys() {
-        assert!(answered.contains(package), "go test -list said nothing for {package}: the listing is incomplete");
+        assert!(
+            answered.contains(package),
+            "go test -list said nothing for {package}: the listing is incomplete"
+        );
     }
     Ok(ids)
 }
@@ -72,7 +81,11 @@ pub fn project(outlined: &[(String, Vec<specdiff::parse::SpecNode>)]) -> Vec<Tes
         .iter()
         .flat_map(|(file, roots)| {
             let dir = Path::new(file).parent().map(|d| d.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-            roots.iter().map(move |n| TestId { file: dir.clone(), path: vec![n.name.clone()], cases: None })
+            roots.iter().map(move |n| TestId {
+                file: dir.clone(),
+                path: vec![n.name.clone()],
+                cases: None,
+            })
         })
         .collect()
 }

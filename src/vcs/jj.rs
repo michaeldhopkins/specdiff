@@ -1,11 +1,11 @@
-use crate::vcs::{is_working_copy_rev, Vcs};
+use crate::vcs::{Vcs, is_working_copy_rev};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use vcs_runner::{
-    is_transient_error, parse_diff_summary, parse_log_output, run_jj, run_jj_utf8_ignore_wc,
-    run_jj_with_retry, run_jj_with_timeout, LOG_TEMPLATE, RunError,
+    LOG_TEMPLATE, RunError, is_transient_error, parse_diff_summary, parse_log_output, run_jj, run_jj_utf8_ignore_wc, run_jj_with_retry,
+    run_jj_with_timeout,
 };
 
 const JJ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -49,12 +49,9 @@ impl JjVcs {
     /// colocated repo this is exactly the git sha of the revision, which git2 can
     /// then resolve. `None` if the rev doesn't resolve.
     fn commit_id_of(&self, rev: &str) -> Option<String> {
-        run_jj_utf8_ignore_wc(
-            &self.root,
-            &["log", "-r", rev, "--no-graph", "--limit", "1", "-T", "commit_id"],
-        )
-        .ok()
-        .filter(|id| !id.is_empty())
+        run_jj_utf8_ignore_wc(&self.root, &["log", "-r", rev, "--no-graph", "--limit", "1", "-T", "commit_id"])
+            .ok()
+            .filter(|id| !id.is_empty())
     }
 
     /// Files changed between `base` and the on-disk working copy (`@` plus live,
@@ -78,12 +75,7 @@ impl JjVcs {
     /// The base tree's tracked file list, read working-copy-agnostically.
     fn base_file_list(&self, base: &str) -> Result<Vec<String>> {
         let out = run_jj_utf8_ignore_wc(&self.root, &["file", "list", "-r", base])?;
-        Ok(out
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .map(String::from)
-            .collect())
+        Ok(out.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
     }
 
     /// Fallback discovery for repos with no workdir git index (the rare
@@ -94,8 +86,7 @@ impl JjVcs {
     /// (see TODO.md).
     fn diskwalk_changed_files(&self, base: &str) -> Result<Vec<PathBuf>> {
         let base_files = self.base_file_list(base)?;
-        let base_set: std::collections::HashSet<&str> =
-            base_files.iter().map(String::as_str).collect();
+        let base_set: std::collections::HashSet<&str> = base_files.iter().map(String::as_str).collect();
 
         let mut changed: Vec<PathBuf> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -148,17 +139,10 @@ impl Vcs for JjVcs {
         if is_working_copy_rev(head) {
             return self.discover_working_changes(base);
         }
-        let output = run_jj_with_retry(
-            &self.root,
-            &ignore_wc(&["diff", "--from", base, "--to", head, "--summary"]),
-            is_transient_error,
-        )
-        .with_context(|| format!("jj diff --from {base} --to {head} --summary"))?;
+        let output = run_jj_with_retry(&self.root, &ignore_wc(&["diff", "--from", base, "--to", head, "--summary"]), is_transient_error)
+            .with_context(|| format!("jj diff --from {base} --to {head} --summary"))?;
 
-        Ok(parse_diff_summary(&output.stdout_lossy())
-            .into_iter()
-            .map(|change| change.path)
-            .collect())
+        Ok(parse_diff_summary(&output.stdout_lossy()).into_iter().map(|change| change.path).collect())
     }
 
     fn file_at_revision(&self, path: &Path, rev: &str) -> Result<String> {
@@ -171,9 +155,7 @@ impl Vcs for JjVcs {
         let path_str = path.to_string_lossy();
         match run_jj(&self.root, &ignore_wc(&["file", "show", "-r", rev, &path_str])) {
             Ok(output) => Ok(output.stdout_lossy().into_owned()),
-            Err(e @ RunError::NonZeroExit { .. }) => {
-                Err(anyhow::anyhow!("file {} not found at {rev}: {e}", path.display()))
-            }
+            Err(e @ RunError::NonZeroExit { .. }) => Err(anyhow::anyhow!("file {} not found at {rev}: {e}", path.display())),
             Err(e) => Err(e.into()),
         }
     }
@@ -183,11 +165,8 @@ impl Vcs for JjVcs {
         // that polls this every few seconds never snapshots the user's edits.
         // (vcs-runner's `jj_merge_base` is not agnostic, so we issue the query.)
         let revset = format!("latest(::({a}) & ::({b}))");
-        let id = run_jj_utf8_ignore_wc(
-            &self.root,
-            &["log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id"],
-        )
-        .with_context(|| format!("jj merge_base {a} {b}"))?;
+        let id = run_jj_utf8_ignore_wc(&self.root, &["log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id"])
+            .with_context(|| format!("jj merge_base {a} {b}"))?;
         if id.is_empty() {
             anyhow::bail!("no common ancestor between '{a}' and '{b}'");
         }
@@ -203,17 +182,12 @@ impl Vcs for JjVcs {
         .context("jj log -r @")?;
 
         let result = parse_log_output(&output.stdout_lossy());
-        Ok(result
-            .entries
-            .into_iter()
-            .next()
-            .and_then(|entry| entry.local_bookmarks.into_iter().next()))
+        Ok(result.entries.into_iter().next().and_then(|entry| entry.local_bookmarks.into_iter().next()))
     }
 
     fn files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>> {
         let output = run_jj(&self.root, &ignore_wc(&["file", "list"])).context("jj file list")?;
-        let pat = glob::Pattern::new(pattern)
-            .with_context(|| format!("invalid glob pattern: {pattern}"))?;
+        let pat = glob::Pattern::new(pattern).with_context(|| format!("invalid glob pattern: {pattern}"))?;
 
         Ok(output
             .stdout_lossy()
@@ -224,17 +198,8 @@ impl Vcs for JjVcs {
     }
 
     fn default_base_rev(&self) -> String {
-        for candidate in [
-            "main@origin",
-            "master@origin",
-            "main@upstream",
-            "master@upstream",
-            "main",
-            "master",
-        ] {
-            if run_jj(&self.root, &ignore_wc(&["log", "-r", candidate, "--no-graph", "--limit", "1"]))
-                .is_ok()
-            {
+        for candidate in ["main@origin", "master@origin", "main@upstream", "master@upstream", "main", "master"] {
+            if run_jj(&self.root, &ignore_wc(&["log", "-r", candidate, "--no-graph", "--limit", "1"])).is_ok() {
                 return candidate.to_string();
             }
         }
@@ -243,10 +208,7 @@ impl Vcs for JjVcs {
 
     fn files_at_revision(&self, paths: &[PathBuf], rev: &str) -> Vec<(PathBuf, Option<String>)> {
         if paths.len() < 4 {
-            return paths
-                .iter()
-                .map(|p| (p.clone(), self.file_at_revision(p, rev).ok()))
-                .collect();
+            return paths.iter().map(|p| (p.clone(), self.file_at_revision(p, rev).ok())).collect();
         }
 
         let root = &self.root;
@@ -282,13 +244,29 @@ mod tests {
         let path = dir.path();
 
         Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().expect("git init");
-        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().expect("git config");
-        Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().expect("git config");
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .expect("git config");
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .expect("git config");
         std::fs::write(path.join("README.md"), "hi\n").expect("write");
         Command::new("git").args(["add", "-A"]).current_dir(path).output().expect("git add");
-        Command::new("git").args(["commit", "-m", "initial"]).current_dir(path).output().expect("git commit");
+        Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(path)
+            .output()
+            .expect("git commit");
 
-        Command::new("jj").args(["git", "init", "--colocate"]).current_dir(path).output().expect("jj init");
+        Command::new("jj")
+            .args(["git", "init", "--colocate"])
+            .current_dir(path)
+            .output()
+            .expect("jj init");
 
         dir
     }
@@ -343,11 +321,7 @@ mod tests {
         let vcs = JjVcs::new(dir.path().to_path_buf());
 
         // A brand-new, un-snapshotted test file in the colocated working tree.
-        std::fs::write(
-            dir.path().join("user_spec.rb"),
-            "RSpec.describe User do\n  it 'new' do\n  end\nend\n",
-        )
-        .expect("write");
+        std::fs::write(dir.path().join("user_spec.rb"), "RSpec.describe User do\n  it 'new' do\n  end\nend\n").expect("write");
 
         let ops_before = op_count(dir.path());
         let changed = vcs.changed_files("@-", "@").expect("changed_files");
@@ -366,11 +340,7 @@ mod tests {
         let dir = create_test_repo();
         let vcs = JjVcs::new(dir.path().to_path_buf());
 
-        std::fs::write(
-            dir.path().join("user_spec.rb"),
-            "RSpec.describe User do\n  it 'new' do\n  end\nend\n",
-        )
-        .expect("write");
+        std::fs::write(dir.path().join("user_spec.rb"), "RSpec.describe User do\n  it 'new' do\n  end\nend\n").expect("write");
 
         let ops_before = op_count(dir.path());
         // Drive the external-store fallback directly (no workdir git required).

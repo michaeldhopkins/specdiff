@@ -61,10 +61,7 @@ impl Stats {
                 DiffKind::Added if is_leaf => self.added += 1,
                 DiffKind::Removed if is_leaf => self.removed += 1,
                 DiffKind::Renamed => self.renamed += 1,
-                DiffKind::Modified
-                | DiffKind::Added
-                | DiffKind::Removed
-                | DiffKind::Unchanged => {}
+                DiffKind::Modified | DiffKind::Added | DiffKind::Removed | DiffKind::Unchanged => {}
             }
             self.count_nodes(&node.children);
         }
@@ -100,22 +97,19 @@ mod tests {
             children: vec![],
         });
         leaf.prop_recursive(3, 16, 4, |inner| {
-            ("[a-z]{1,8}", arbitrary_diff_kind(), proptest::collection::vec(inner, 0..4)).prop_map(
-                |(name, kind, children)| DiffNode {
-                    name,
-                    kind,
-                    old_name: None,
-                    param_cases: None,
-                    old_param_cases: None,
-                    children,
-                },
-            )
+            ("[a-z]{1,8}", arbitrary_diff_kind(), proptest::collection::vec(inner, 0..4)).prop_map(|(name, kind, children)| DiffNode {
+                name,
+                kind,
+                old_name: None,
+                param_cases: None,
+                old_param_cases: None,
+                children,
+            })
         })
     }
 
     fn arbitrary_file_diff() -> impl Strategy<Value = FileDiff> {
-        ("[a-z]{1,8}", proptest::collection::vec(arbitrary_diff_node(), 0..4))
-            .prop_map(|(path, nodes)| FileDiff { path, nodes })
+        ("[a-z]{1,8}", proptest::collection::vec(arbitrary_diff_node(), 0..4)).prop_map(|(path, nodes)| FileDiff { path, nodes })
     }
 
     fn collect_nodes<'a>(nodes: &'a [DiffNode], out: &mut Vec<&'a DiffNode>) {

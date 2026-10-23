@@ -77,8 +77,7 @@ fn check_corpus(family: &str) {
     eprintln!("{}", report.render());
     assert!(report.unexplained.is_empty(), "unexplained differences; see the report above");
     if ran {
-        let unused: Vec<String> =
-            report.unused(&[family], &known).iter().map(|k| format!("{} ({})", k.class, k.reason)).collect();
+        let unused: Vec<String> = report.unused(&[family], &known).iter().map(|k| format!("{} ({})", k.class, k.reason)).collect();
         assert!(unused.is_empty(), "known.toml classes that explained nothing in the corpus: {unused:?}");
     }
 }

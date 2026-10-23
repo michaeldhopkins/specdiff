@@ -31,11 +31,9 @@ fn parse(path: &Path) -> syn::File {
 }
 
 fn is_test_only(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|a| {
-        a.path().is_ident("test")
-            || (a.path().is_ident("cfg")
-                && a.parse_args::<syn::Meta>().is_ok_and(|m| m.path().is_ident("test")))
-    })
+    attrs
+        .iter()
+        .any(|a| a.path().is_ident("test") || (a.path().is_ident("cfg") && a.parse_args::<syn::Meta>().is_ok_and(|m| m.path().is_ident("test"))))
 }
 
 fn last_segment(expr: &syn::Expr) -> Option<String> {
@@ -47,13 +45,7 @@ fn last_segment(expr: &syn::Expr) -> Option<String> {
 
 fn path_string(expr: &syn::Expr) -> String {
     match expr {
-        syn::Expr::Path(p) => p
-            .path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect::<Vec<_>>()
-            .join("::"),
+        syn::Expr::Path(p) => p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::"),
         _ => String::new(),
     }
 }
@@ -123,7 +115,8 @@ impl<'a> Visit<'a> for Programs<'_> {
             if program.starts_with('/') {
                 self.out.push(format!("{}: runs {program} by absolute path, past every stub", self.file));
             } else if !self.allowed.contains(&program) {
-                self.out.push(format!("{}: runs {program}, which tests/tui.toml `programs` does not list", self.file));
+                self.out
+                    .push(format!("{}: runs {program}, which tests/tui.toml `programs` does not list", self.file));
             }
         }
         syn::visit::visit_expr_call(self, call);
@@ -181,7 +174,8 @@ impl<'a> Visit<'a> for Harness {
     fn visit_expr_call(&mut self, call: &'a syn::ExprCall) {
         match last_segment(&call.func).as_deref() {
             Some("sleep") if !self.deadline_loops.iter().any(|d| *d) => {
-                self.out.push(format!("{}: sleeps outside a deadline-bounded poll: {}", self.file, tokens(call)));
+                self.out
+                    .push(format!("{}: sleeps outside a deadline-bounded poll: {}", self.file, tokens(call)));
             }
             Some("cargo_bin") => {
                 self.out.push(format!("{}: spawns through cargo_bin, not env!(\"CARGO_BIN_EXE_…\")", self.file));
@@ -250,8 +244,7 @@ fn listed_tests(manifest: &toml::Value) -> Vec<String> {
 fn violations(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let manifest_path = root.join("tests/tui.toml");
-    let manifest: toml::Value = toml::from_str(&std::fs::read_to_string(&manifest_path).expect("tests/tui.toml"))
-        .expect("tests/tui.toml parses");
+    let manifest: toml::Value = toml::from_str(&std::fs::read_to_string(&manifest_path).expect("tests/tui.toml")).expect("tests/tui.toml parses");
     let programs: Vec<String> = manifest["programs"]
         .as_array()
         .expect("programs")
@@ -279,7 +272,11 @@ fn violations(root: &Path) -> Vec<String> {
     let mut sources = Vec::new();
     rs_files(&root.join("src"), None, &mut sources);
     for path in sources {
-        let mut visitor = Programs { file: rel(root, &path), allowed: &programs, out: Vec::new() };
+        let mut visitor = Programs {
+            file: rel(root, &path),
+            allowed: &programs,
+            out: Vec::new(),
+        };
         visitor.visit_file(&parse(&path));
         out.extend(visitor.out);
     }
@@ -287,7 +284,11 @@ fn violations(root: &Path) -> Vec<String> {
     let mut tests = Vec::new();
     rs_files(&root.join("tests"), Some(&root.join("tests/fixtures")), &mut tests);
     for path in tests {
-        let mut visitor = Harness { file: rel(root, &path), deadline_loops: Vec::new(), out: Vec::new() };
+        let mut visitor = Harness {
+            file: rel(root, &path),
+            deadline_loops: Vec::new(),
+            out: Vec::new(),
+        };
         let file = parse(&path);
         visitor.visit_file(&file);
         out.extend(visitor.out);

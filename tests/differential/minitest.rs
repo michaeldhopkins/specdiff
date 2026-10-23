@@ -26,8 +26,7 @@ fn spec_name(method: &str) -> Option<&str> {
 
 pub fn reference(project: &Path, _name: &str) -> Result<Vec<TestId>, Skip> {
     let patterns = ["test/**/*_test.rb", "test/**/test_*.rb"].map(|p| glob::Pattern::new(p).expect("glob"));
-    let files: Vec<String> =
-        project_files(project).into_iter().filter(|f| patterns.iter().any(|p| p.matches(f))).collect();
+    let files: Vec<String> = project_files(project).into_iter().filter(|f| patterns.iter().any(|p| p.matches(f))).collect();
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/differential/minitest_list.rb");
     let listed = output(Command::new("ruby").arg(script).arg(project).args(&files).current_dir(project))?;
     let norm = framework("minitest").normalization.as_ref();
@@ -36,7 +35,9 @@ pub fn reference(project: &Path, _name: &str) -> Result<Vec<TestId>, Skip> {
         let test: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("{line}: {e}"));
         let field = |k: &str| test[k].as_str().unwrap_or_default().to_string();
         let file = field("file");
-        let rel = Path::new(&file).strip_prefix(project).map_or(file.clone(), |p| p.to_string_lossy().replace('\\', "/"));
+        let rel = Path::new(&file)
+            .strip_prefix(project)
+            .map_or(file.clone(), |p| p.to_string_lossy().replace('\\', "/"));
         let method = field("method");
         let mut path: Vec<String> = field("class").split("::").map(|s| normalize(s, norm)).collect();
         path.push(spec_name(&method).map_or_else(|| normalize(&method, norm), str::to_string));
