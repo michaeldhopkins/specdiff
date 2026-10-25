@@ -22,7 +22,7 @@ exclude_re = [
     # Anchored by line and column because the other `+ with *` mutants in this function
     # are real. If the line moves this stops matching and the mutants reappear as MISSED,
     # which is the loud direction: re-anchor it then.
-    '^src/output/truncate\.rs:31:(30|34): replace \+ with \* in truncate_unchanged_runs$',
+    '^src/output/truncate\.rs:23:(30|34): replace \+ with \* in truncate_unchanged_runs$',
     # Equivalent. The empty-string guard is a shortcut: with `&&`, one empty side splits
     # into no words, so `common` is 0 and the function still returns 0.0 (and two
     # whitespace-only names split to nothing on both sides and also give 0.0).
@@ -30,20 +30,20 @@ exclude_re = [
     # Equivalent while `Stats::from_file_diffs` never counts `modified` (it is always 0,
     # see TODO.md): `modified < 0` and `modified > 0` are both false for it. Anchored by
     # line like the truncate exclusion, because the same mutant on the other counts is real.
-    '^src/output/mod\.rs:113:23: replace > with < in push_stats_header$',
+    '^src/output/mod\.rs:109:23: replace > with < in push_stats_header$',
     # Equivalent. The skip in `collect_compact_lines` is a shortcut: any node that is not
     # Unchanged has changes, so under `!=` nothing is skipped, and an unchanged node with
     # no changes prints nothing and has no changed descendants to print.
     '^src/output/mod\.rs:\d+:\d+: replace == with != in collect_compact_lines$',
     # Equivalent. `contents.len() >= 4` only picks serial processing or rayon, and
     # `par_iter().filter_map().collect()` keeps input order, so the diffs are identical.
-    '^src/pipeline\.rs:211:39: replace >= with < in diff_with_registries$',
+    '^src/pipeline\.rs:196:39: replace >= with < in diff_with_registries$',
     # Equivalent today. `has_shared_definitions && scan_spec_files_for_definitions` only
     # differs from `||` for jest (the one framework with definitions and the flag off), and
     # jest's definitions never register (see TODO.md), so scanning its test files finds
     # nothing either way. Anchored by line because the other `&&` in the function is real.
     # Remove this if jest helpers start registering.
-    '^src/pipeline\.rs:323:13: replace && with \|\| in build_shared_registry$',
+    '^src/pipeline\.rs:303:54: replace && with \|\| in build_shared_registry$',
     # Equivalent. `paths.len() < 4` only picks serial reads or rayon; both read each path
     # the same way and map any failure to None, so the result is identical either side.
     'replace < with (==|>|<=) in <impl Vcs for JjVcs>::files_at_revision$',
