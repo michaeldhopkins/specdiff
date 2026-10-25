@@ -47,6 +47,29 @@ jobs:
       - name: cargo deny
         run: cargo deny check
 
+  # rust-toolchain.toml pins the newest stable, so nothing else builds on the
+  # rust-version that crates.io users are promised. Read from Cargo.toml so the
+  # two cannot disagree.
+  msrv:
+    name: MSRV (cargo check on Cargo.toml's rust-version)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read rust-version
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo +${{ steps.msrv.outputs.version }} check --locked
+
   differential:
     name: Differential (outline vs each framework's own listing)
     runs-on: ubuntu-latest
