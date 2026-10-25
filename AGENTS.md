@@ -31,12 +31,13 @@ Subject ≤ 70 chars. Body explains *why* and lists any breaking migration steps
 
 Before every commit, verify:
 1. Every code change has a corresponding test. No exceptions.
-2. `cargo clippy --all-targets -- -D warnings` passes
-3. `cargo test` passes
-4. Version bumped in Cargo.toml (patch for fixes, minor for features)
-5. `cargo check` to regenerate Cargo.lock after version bump
-6. `cargo install --path . --force` run before pushing
-7. All files end with a newline
+2. `cargo fmt --all --check` passes (run `cargo fmt --all` to fix)
+3. `cargo clippy --all-targets -- -D warnings` passes
+4. `cargo test` passes
+5. Version bumped in Cargo.toml (patch for fixes, minor for features)
+6. `cargo check` to regenerate Cargo.lock after version bump
+7. `cargo install --path . --force` run before pushing
+8. All files end with a newline
 
 ## Versioning (Semver)
 
