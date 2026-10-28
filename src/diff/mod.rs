@@ -209,10 +209,10 @@ fn build_diff_results(
     head_matched: &[bool],
     budget: &Cell<usize>,
 ) -> Vec<DiffNode> {
-    let mut results = Vec::with_capacity(base.len() + head.len());
+    let mut results: Vec<(Option<usize>, DiffNode)> = Vec::with_capacity(base.len() + head.len());
     for (bi, b) in base.iter().enumerate() {
         match assignment[bi].take() {
-            Some(Assignment::Exact(hi)) => results.push(build_exact_node(b, &head[hi], budget)),
+            Some(Assignment::Exact(hi)) => results.push((Some(hi), build_exact_node(b, &head[hi], budget))),
             Some(Assignment::Renamed(hi, maybe_inner)) => {
                 let h = &head[hi];
                 let inner = maybe_inner.unwrap_or_else(|| {
@@ -222,17 +222,19 @@ fn build_diff_results(
                         vec![]
                     }
                 });
-                results.push(build_renamed_node(b, h, inner));
+                results.push((Some(hi), build_renamed_node(b, h, inner)));
             }
-            None => results.push(build_removed_node(b)),
+            None => results.push((None, build_removed_node(b))),
         }
     }
     for (hi, h) in head.iter().enumerate() {
         if !head_matched[hi] {
-            results.push(build_added_node(h));
+            let anchor = results.iter().rposition(|(idx, _)| idx.is_some_and(|i| i < hi)).map_or(0, |pos| pos + 1);
+            let slot = anchor + results[anchor..].iter().take_while(|(idx, _)| idx.is_none()).count();
+            results.insert(slot, (Some(hi), build_added_node(h)));
         }
     }
-    results
+    results.into_iter().map(|(_, node)| node).collect()
 }
 
 fn build_exact_node(base: &SpecNode, head: &SpecNode, budget: &Cell<usize>) -> DiffNode {
@@ -406,6 +408,61 @@ mod tests {
         assert_eq!(diff[0].kind, DiffKind::Unchanged);
         assert_eq!(diff[1].kind, DiffKind::Added);
         assert_eq!(diff[1].name, "validates uniqueness");
+    }
+
+    fn names(diff: &[DiffNode]) -> Vec<(&str, DiffKind)> {
+        diff.iter().map(|d| (d.name.as_str(), d.kind)).collect()
+    }
+
+    #[test]
+    fn added_group_in_the_middle_keeps_its_head_position() {
+        let base = vec![
+            SpecNode::group("first", 1, vec![SpecNode::spec("a", 2)]),
+            SpecNode::group("last", 3, vec![SpecNode::spec("b", 4)]),
+        ];
+        let head = vec![
+            SpecNode::group("first", 1, vec![SpecNode::spec("a", 2)]),
+            SpecNode::group("inserted", 3, vec![SpecNode::spec("c", 4)]),
+            SpecNode::group("last", 5, vec![SpecNode::spec("b", 6)]),
+        ];
+        let diff = diff_spec_nodes(&base, &head);
+        assert_eq!(
+            names(&diff),
+            vec![("first", DiffKind::Unchanged), ("inserted", DiffKind::Added), ("last", DiffKind::Unchanged)]
+        );
+    }
+
+    #[test]
+    fn added_spec_at_the_front_stays_first() {
+        let base = vec![SpecNode::spec("b", 1)];
+        let head = vec![SpecNode::spec("a", 1), SpecNode::spec("b", 2)];
+        let diff = diff_spec_nodes(&base, &head);
+        assert_eq!(names(&diff), vec![("a", DiffKind::Added), ("b", DiffKind::Unchanged)]);
+    }
+
+    #[test]
+    fn consecutive_additions_keep_their_relative_order() {
+        let base = vec![SpecNode::spec("a", 1), SpecNode::spec("d", 2)];
+        let head = vec![SpecNode::spec("a", 1), SpecNode::spec("b", 2), SpecNode::spec("c", 3), SpecNode::spec("d", 4)];
+        let diff = diff_spec_nodes(&base, &head);
+        let order: Vec<&str> = diff.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(order, vec!["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn an_addition_follows_a_removal_at_the_same_spot() {
+        let base = vec![SpecNode::spec("alpha", 1), SpecNode::spec("obsolete behaviour", 2), SpecNode::spec("omega", 3)];
+        let head = vec![SpecNode::spec("alpha", 1), SpecNode::spec("fresh", 2), SpecNode::spec("omega", 3)];
+        let diff = diff_spec_nodes(&base, &head);
+        assert_eq!(
+            names(&diff),
+            vec![
+                ("alpha", DiffKind::Unchanged),
+                ("obsolete behaviour", DiffKind::Removed),
+                ("fresh", DiffKind::Added),
+                ("omega", DiffKind::Unchanged)
+            ]
+        );
     }
 
     #[test]

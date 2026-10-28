@@ -47,6 +47,10 @@ exclude_re = [
     # Equivalent. `paths.len() < 4` only picks serial reads or rayon; both read each path
     # the same way and map any failure to None, so the result is identical either side.
     'replace < with (==|>|<=) in <impl Vcs for JjVcs>::files_at_revision$',
+    # Equivalent. Every head entry already in `results` when an addition is placed has an
+    # index below the addition (they are processed in head order and `hi` is unmatched), so
+    # `i < hi` and `i <= hi` select the same entries.
+    '^src/diff/mod\.rs:\d+:\d+: replace < with <= in build_diff_results$',
 ]
 
 # A hung mutant (a loop counter turned the wrong way) is stopped after this multiple of the
