@@ -784,3 +784,102 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod shared_listing_tests {
+    use super::*;
+
+    fn write(root: &Path, rel: &str) {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(path, "x\n").expect("write");
+    }
+
+    fn directory_source() -> (tempfile::TempDir, DirectorySource) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let base = tmp.path().join("base");
+        let head = tmp.path().join("head");
+        write(&base, "tests/a.php");
+        write(&base, "tests/notes.txt");
+        write(&head, "tests/b.php");
+        write(&head, "tests/a.php");
+        write(&base, "test/helper.rb");
+        write(&head, "spec/deep/y.rb");
+        write(&head, "README.md");
+        let source = DirectorySource { base, head };
+        (tmp, source)
+    }
+
+    #[test]
+    fn directory_list_shared_files_unions_both_sides_by_glob() {
+        let (_tmp, source) = directory_source();
+        assert_eq!(
+            source.list_shared_files("tests/**/*.php").expect("list"),
+            vec!["tests/a.php".to_string(), "tests/b.php".to_string()]
+        );
+    }
+
+    #[test]
+    fn directory_list_shared_files_all_collects_inheritance_globs() {
+        let (_tmp, source) = directory_source();
+        assert_eq!(
+            source.list_shared_files_all(),
+            vec![
+                "spec/deep/y.rb".to_string(),
+                "test/helper.rb".to_string(),
+                "tests/a.php".to_string(),
+                "tests/b.php".to_string(),
+            ]
+        );
+    }
+
+    struct ListingVcs;
+
+    impl vcs::Vcs for ListingVcs {
+        fn changed_files(&self, _base: &str, _head: &str) -> Result<Vec<PathBuf>> {
+            Ok(vec![])
+        }
+        fn file_at_revision(&self, _path: &Path, _rev: &str) -> Result<String> {
+            anyhow::bail!("unused")
+        }
+        fn merge_base(&self, _a: &str, _b: &str) -> Result<String> {
+            Ok(String::new())
+        }
+        fn current_branch(&self) -> Result<Option<String>> {
+            Ok(None)
+        }
+        fn files_matching(&self, _pattern: &str) -> Result<Vec<PathBuf>> {
+            Ok(vec![PathBuf::from("z_shared.rb"), PathBuf::from("a_shared.rb")])
+        }
+        fn default_base_rev(&self) -> String {
+            String::new()
+        }
+        fn default_head_rev(&self) -> &str {
+            ""
+        }
+    }
+
+    fn vcs_source(vcs: &ListingVcs) -> VcsSource<'_> {
+        VcsSource {
+            vcs,
+            files: vec![],
+            merge_base: String::new(),
+            head_rev: String::new(),
+        }
+    }
+
+    #[test]
+    fn vcs_list_shared_files_returns_what_the_backend_matched() {
+        let source = vcs_source(&ListingVcs);
+        assert_eq!(
+            source.list_shared_files("test/**/*.rb").expect("list"),
+            vec!["z_shared.rb".to_string(), "a_shared.rb".to_string()]
+        );
+    }
+
+    #[test]
+    fn vcs_list_shared_files_all_dedups_and_sorts_across_frameworks() {
+        let source = vcs_source(&ListingVcs);
+        assert_eq!(source.list_shared_files_all(), vec!["a_shared.rb".to_string(), "z_shared.rb".to_string()]);
+    }
+}
